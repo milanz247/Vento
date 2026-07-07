@@ -35,6 +35,11 @@ func main() {
 	// route's handler chain at registration time, so Use must run first -
 	// which the order below does naturally.
 	app.Use(middleware.RequestID)
+	if appKey := env["APP_KEY"]; appKey != "" {
+		// Sessions is opt-in: it needs a signing secret, so it's only wired
+		// in once APP_KEY is set in .env. See vento.Sessions and c.Session().
+		app.Use(vento.Sessions(appKey))
+	}
 	routes.Web(app)
 	routes.Api(app)
 

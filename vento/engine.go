@@ -1,13 +1,17 @@
 package vento
 
 import (
+	"context"
 	"fmt"
 	"html/template"
 	"io/fs"
 	"net/http"
+	"os"
+	"os/signal"
 	"path/filepath"
 	"strings"
 	"sync"
+	"syscall"
 	"time"
 
 	"gorm.io/driver/mysql"
@@ -202,13 +206,25 @@ func (e *Engine) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	matched, params := e.router.getRoute(r.Method, r.URL.Path)
-	if matched == nil {
-		http.NotFound(w, r)
+	if matched, params := e.router.getRoute(r.Method, r.URL.Path); matched != nil {
+		e.dispatch(w, r, matched.handlers, params)
 		return
 	}
 
-	e.dispatch(w, r, matched.handlers, params)
+	// A CORS preflight targets a route that (almost always) is never
+	// registered under OPTIONS itself, so it would otherwise 404 before
+	// the global middleware chain - and CORS - ever runs. Run the global
+	// chain for it specifically, falling through to the normal 404 if
+	// nothing in the chain (i.e. CORS, for a disallowed origin) handles it.
+	if r.Method == http.MethodOptions && r.Header.Get("Access-Control-Request-Method") != "" {
+		chain := make([]HandlerFunc, 0, len(e.middlewares)+1)
+		chain = append(chain, e.middlewares...)
+		chain = append(chain, func(c *Context) { http.NotFound(c.Writer, c.Request) })
+		e.dispatch(w, r, chain, nil)
+		return
+	}
+
+	http.NotFound(w, r)
 }
 
 // dispatch acquires a Context from the pool, points it at handlers (a
@@ -230,7 +246,13 @@ func (e *Engine) dispatch(w http.ResponseWriter, r *http.Request, handlers []Han
 }
 
 // Run starts the HTTP server on addr (e.g. ":8080"), using the Engine
-// itself as the root http.Handler.
+// itself as the root http.Handler, and blocks until it stops - either
+// because ListenAndServe failed (e.g. the port is already in use) or
+// because the process received SIGINT/SIGTERM, in which case Run drains
+// in-flight requests via graceful shutdown before returning nil. A second
+// signal, or requests still open after ShutdownTimeout, does not force an
+// immediate exit - callers wanting that should also install their own
+// os/signal handling if it matters for their deployment.
 //
 // The server is configured with conservative timeouts rather than the
 // standard library's unlimited defaults, so a client that connects and
@@ -248,6 +270,39 @@ func (e *Engine) Run(addr string) error {
 		WriteTimeout:      30 * time.Second,
 		IdleTimeout:       120 * time.Second,
 	}
-	fmt.Printf("vento: listening on %s\n", addr)
-	return srv.ListenAndServe()
+
+	serveErr := make(chan error, 1)
+	go func() {
+		fmt.Printf("vento: listening on %s\n", addr)
+		if err := srv.ListenAndServe(); err != nil && err != http.ErrServerClosed {
+			serveErr <- err
+			return
+		}
+		close(serveErr)
+	}()
+
+	stop := make(chan os.Signal, 1)
+	signal.Notify(stop, os.Interrupt, syscall.SIGTERM)
+	defer signal.Stop(stop)
+
+	select {
+	case err := <-serveErr:
+		return err
+	case <-stop:
+		fmt.Println("vento: shutting down (waiting up to " + ShutdownTimeout.String() + " for in-flight requests)...")
+		ctx, cancel := context.WithTimeout(context.Background(), ShutdownTimeout)
+		defer cancel()
+		if err := srv.Shutdown(ctx); err != nil {
+			return err
+		}
+		fmt.Println("vento: shutdown complete")
+		return nil
+	}
 }
+
+// ShutdownTimeout is how long Run waits for in-flight requests to finish
+// draining after SIGINT/SIGTERM before giving up. It's a package-level var
+// rather than a Run parameter so it stays out of the common call
+// (app.Run(":8080")) - override it before calling Run if 10s doesn't suit
+// a deployment (e.g. long-running uploads).
+var ShutdownTimeout = 10 * time.Second

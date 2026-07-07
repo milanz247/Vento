@@ -39,6 +39,7 @@ type Context struct {
 	db        *gorm.DB            // injected by the Engine before the chain runs
 	templates map[string]*viewSet // pre-stitched layout+page sets, injected by the Engine
 	viewData  H                   // values accumulated via Set, rendered by View when called with no data
+	session   *Session            // loaded by the Sessions middleware, if installed; see Session()
 }
 
 // Reset re-initialises a pooled Context for a new request/response cycle,
@@ -55,6 +56,19 @@ func (c *Context) Reset(w http.ResponseWriter, r *http.Request) {
 	c.db = nil
 	c.templates = nil
 	c.viewData = nil
+	c.session = nil
+}
+
+// Session returns the current request's session - key/value storage backed
+// by a signed cookie, loaded by the Sessions middleware if it's installed.
+// Without Sessions installed, this still returns a working, empty Session
+// so Get/Set never panic, but it won't persist anywhere since nothing
+// signs or writes the cookie. See Sessions for how to wire it in.
+func (c *Context) Session() *Session {
+	if c.session == nil {
+		c.session = &Session{}
+	}
+	return c.session
 }
 
 // Set stashes a key/value pair on the request, readable later via Get or,

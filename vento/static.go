@@ -2,6 +2,7 @@ package vento
 
 import (
 	"net/http"
+	"strconv"
 	"strings"
 )
 
@@ -11,6 +12,16 @@ type staticMount struct {
 	prefix   string
 	handlers []HandlerFunc
 }
+
+// StaticMaxAge is the Cache-Control max-age (in seconds) Static stamps onto
+// every response, so browsers stop re-fetching unchanged assets on every
+// load. http.FileServer already handles conditional requests on top of
+// this (Last-Modified / If-Modified-Since), so a stale cache still
+// revalidates cheaply instead of silently serving old content forever.
+// Lower it, per mount, if assets change more often than once an hour by
+// setting it before calling Static - it's read at registration time, not
+// per request.
+var StaticMaxAge = 3600
 
 // Static serves the files under dir at urlPrefix, e.g.
 // Static("/public", "./public") serves ./public/css/app.css at
@@ -25,10 +36,12 @@ type staticMount struct {
 func (e *Engine) Static(urlPrefix, dir string) {
 	urlPrefix = "/" + strings.Trim(urlPrefix, "/")
 	fileServer := http.StripPrefix(urlPrefix, http.FileServer(http.Dir(dir)))
+	cacheControl := "public, max-age=" + strconv.Itoa(StaticMaxAge)
 
 	chain := make([]HandlerFunc, 0, len(e.middlewares)+1)
 	chain = append(chain, e.middlewares...)
 	chain = append(chain, func(c *Context) {
+		c.Writer.Header().Set("Cache-Control", cacheControl)
 		fileServer.ServeHTTP(c.Writer, c.Request)
 	})
 
