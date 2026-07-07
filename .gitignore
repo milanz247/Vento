@@ -1,0 +1,14 @@
+.env
+tmp/
+bin/
+fram.db
+vento.db
+
+# Front-end build (Tailwind CSS)
+node_modules/
+public/css/app.css
+
+# Editor / local tooling
+.claude/
+.idea/
+.vscode/

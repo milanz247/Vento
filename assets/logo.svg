@@ -1,0 +1,22 @@
+<svg width="600" height="160" viewBox="0 0 600 160" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="Vento — a high-performance Go web framework">
+  <defs>
+    <linearGradient id="ventoBadgeGrad" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#10b981"/>
+      <stop offset="55%" stop-color="#14b8a6"/>
+      <stop offset="100%" stop-color="#06b6d4"/>
+    </linearGradient>
+    <linearGradient id="ventoTextGrad" x1="0%" y1="0%" x2="100%" y2="0%">
+      <stop offset="0%" stop-color="#0f172a"/>
+      <stop offset="100%" stop-color="#0d9488"/>
+    </linearGradient>
+  </defs>
+
+  <!-- Icon: flat "V" mark with wind/motion trails -->
+  <rect x="8" y="12" width="136" height="136" rx="32" fill="url(#ventoBadgeGrad)"/>
+  <path d="M 26 56 L 44 56 M 26 80 L 50 80 M 26 104 L 44 104" stroke="#fff" stroke-width="7" stroke-linecap="round" opacity="0.65"/>
+  <path d="M 62 42 L 84 108 L 108 32" fill="none" stroke="#fff" stroke-width="14" stroke-linecap="round" stroke-linejoin="round"/>
+
+  <!-- Wordmark -->
+  <text x="176" y="100" font-family="'Segoe UI', Helvetica, Arial, sans-serif" font-size="64" font-weight="700" fill="url(#ventoTextGrad)">Vento</text>
+  <text x="180" y="126" font-family="'Segoe UI', Helvetica, Arial, sans-serif" font-size="15" font-weight="600" letter-spacing="3" fill="#64748b">GO WEB FRAMEWORK</text>
+</svg>

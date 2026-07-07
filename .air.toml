@@ -1,0 +1,38 @@
+# Air hot-reload configuration for Vento.
+# Install air:  go install github.com/air-verse/air@latest
+# Start:        vento run   (auto-detects air)  or just:  air
+
+root = "."
+tmp_dir = "tmp"
+
+[build]
+  cmd = "go build -o ./tmp/main ."
+  entrypoint = "./tmp/main"
+  # Watch Go sources and page templates; a rebuild restarts the server,
+  # which re-runs LoadHTMLGlob and refreshes the template cache.
+  include_ext = ["go", "html"]
+  # High-performance watcher exclusions: build output, VCS metadata, the
+  # pre-parsed layouts cache, and local artifacts that never require a
+  # rebuild (.env, database files, the locally built CLI binary).
+  exclude_dir = ["tmp", ".git", "bin", "views/layouts", "node_modules", "public"]
+  exclude_file = [".env", "setup.go"]
+  exclude_regex = [".*\\.db$", "_test\\.go$"]
+  delay = 500 # ms to coalesce rapid successive saves into one rebuild
+  stop_on_error = true
+
+[build.windows]
+  # cmd.exe refuses to execute a file with no extension, so on Windows the
+  # build output needs an explicit .exe suffix.
+  cmd = "go build -o ./tmp/main.exe ."
+  entrypoint = "./tmp/main.exe"
+
+[log]
+  time = true
+
+[color]
+  main = "cyan"
+  build = "yellow"
+  runner = "green"
+
+[misc]
+  clean_on_exit = true

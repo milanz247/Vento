@@ -1,0 +1,14 @@
+{
+  "name": "vento-app",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Front-end asset build for the Vento Go web framework (Tailwind CSS).",
+  "scripts": {
+    "build:css": "tailwindcss -i ./assets/css/input.css -o ./public/css/app.css --minify",
+    "watch:css": "tailwindcss -i ./assets/css/input.css -o ./public/css/app.css --watch"
+  },
+  "devDependencies": {
+    "@tailwindcss/cli": "^4.3.2",
+    "tailwindcss": "^4.3.2"
+  }
+}
