@@ -23,14 +23,15 @@ vento-app/
 │   └── user.go            # Example User model + models.All() (what db:automigrate syncs)
 │
 ├── middleware/            # Your own middleware (mirrors Laravel's app/Http/Middleware)
-│   └── request_id.go      # RequestID — example; wired into routes/web.go's global chain
+│   └── request_id.go      # RequestID — example; wired into GlobalMiddleware in routes/kernel.go
 │
 ├── migrations/            # Ordered, reversible schema changes (mirrors database/migrations)
 │   ├── migrations.go      # register() + All() — the self-registering migration registry
 │   └── 20260101_000001_create_users_table.go  # Example migration (make:migration scaffolds more)
 │
-├── routes/                # Endpoint declarations (mirrors Laravel's routes/web.php)
-│   └── web.go             # RegisterRoutes: global middlewares + every route
+├── routes/                # HTTP surface (mirrors Laravel's routes/ + app/Http/Kernel.php)
+│   ├── kernel.go          # GlobalMiddleware (the global stack) + RegisterRoutes wiring
+│   └── web.go             # web(): the route table only — just app.GET/POST/... lines
 │
 ├── views/                 # HTML templates, compiled once at startup
 │   ├── layouts/base.html  # Shared document shell: <head>, {{template "content" .}}

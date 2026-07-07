@@ -1,41 +1,23 @@
-// Package routes declares every application endpoint, mirroring
-// Laravel's routes/web.php. It imports controllers and vento only - never
-// main - which keeps main -> routes -> controllers a one-way dependency
-// graph instead of a cycle.
+// Package routes declares the application's HTTP surface, mirroring Laravel:
+// the global middleware stack lives in kernel.go (like app/Http/Kernel.php),
+// and the route table lives here (like routes/web.php). It imports
+// controllers, middleware, and vento only - never main - which keeps
+// main -> routes -> controllers a one-way dependency graph instead of a
+// cycle.
 package routes
 
 import (
 	"vento-app/controllers"
-	"vento-app/middleware"
 	"vento-app/vento"
 )
 
-// RegisterRoutes wires the global middleware stack and every route onto
-// app. This is the one place you add routes as your app grows - think of
-// it as Laravel's routes/web.php.
+// web maps every endpoint onto app. This is the one place you add routes as
+// your app grows - keep it to route declarations only; the global middleware
+// stack is defined in kernel.go (GlobalMiddleware). A single route can still
+// take its own middleware as trailing arguments, e.g.:
 //
-// Vento compiles each route's chain at registration time, so Use must run
-// before the route mappings - middleware order reads outermost first:
-//   - Logger wraps everything so even recovered panics get a timed line.
-//   - Recovery converts downstream panics into clean 500s.
-//   - RequestID stamps an X-Request-ID for tracing (your own middleware,
-//     from the app-level middleware package - see docs/middleware.md).
-//   - SecurityHeaders stamps hardening headers before any body is written.
-//   - BodyLimit (1 MiB) caps request bodies before any handler reads them.
-//   - RateLimiter (10 req/s, burst 20, per IP) rejects floods early.
-//   - CSRFProtection guards browser-facing form posts; pass path prefixes
-//     to exempt (e.g. a JSON API: vento.CSRFProtection("/api")).
-func RegisterRoutes(app *vento.Engine) {
-	app.Use(
-		vento.Logger,
-		vento.Recovery,
-		middleware.RequestID,
-		vento.SecurityHeaders,
-		vento.BodyLimit(1<<20),
-		vento.RateLimiter(10, 20),
-		vento.CSRFProtection(),
-	)
-
-	// Routes. Add yours here.
+//	app.GET("/admin", controllers.AdminIndex, middleware.RequireAuth)
+func web(app *vento.Engine) {
 	app.GET("/", controllers.Index)
+	// Add your routes here.
 }

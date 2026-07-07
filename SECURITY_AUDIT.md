@@ -22,8 +22,8 @@
 
 | Gap | Mitigation | Where |
 |-----|-----------|-------|
-| 1 | Per-IP token-bucket rate limiter over `sync.Map` (wired at 10 req/s, burst 20 → HTTP 429 + `Retry-After`). Idle buckets are purged at most once a minute so the map stays bounded under spoofed-address floods. | `vento/security.go` → `RateLimiter`, wired in `routes/web.go` |
-| 2 | Double-submit-cookie CSRF middleware: safe methods are issued a 32-byte `crypto/rand` token cookie (`vento_csrf`, `SameSite=Lax`); non-idempotent methods must echo it in `X-CSRF-Token` or `_csrf`, compared with `crypto/subtle.ConstantTimeCompare` → 403 otherwise. Explicit exemption list for token-driven JSON APIs. | `vento/security.go` → `CSRFProtection`, wired in `routes/web.go` |
+| 1 | Per-IP token-bucket rate limiter over `sync.Map` (wired at 10 req/s, burst 20 → HTTP 429 + `Retry-After`). Idle buckets are purged at most once a minute so the map stays bounded under spoofed-address floods. | `vento/security.go` → `RateLimiter`, wired in `routes/kernel.go` |
+| 2 | Double-submit-cookie CSRF middleware: safe methods are issued a 32-byte `crypto/rand` token cookie (`vento_csrf`, `SameSite=Lax`); non-idempotent methods must echo it in `X-CSRF-Token` or `_csrf`, compared with `crypto/subtle.ConstantTimeCompare` → 403 otherwise. Explicit exemption list for token-driven JSON APIs. | `vento/security.go` → `CSRFProtection`, wired in `routes/kernel.go` |
 | 3 | `SecurityHeaders` middleware stamps `X-Frame-Options: DENY`, `X-XSS-Protection: 1; mode=block`, `X-Content-Type-Options: nosniff`, `Referrer-Policy: strict-origin-when-cross-origin` on every response. | `vento/security.go` → `SecurityHeaders` |
 | 4 | Database errors are logged server-side only; clients receive generic messages ("could not create user"). | `controllers/user_controller.go` |
 | 5 | JSON binds to a dedicated `createUserInput` struct; only `name`/`email` ever reach the model. | `controllers/user_controller.go` |
@@ -43,7 +43,7 @@ Additional standing controls: panic recovery (`vento.Recovery`) keeps the proces
   implements `http.Handler` directly. (`vento/engine.go`)
 - **Request body limits** — new `vento.BodyLimit(maxBytes)` middleware wraps
   the body in `http.MaxBytesReader`; wired globally at 1 MiB in
-  `routes/web.go`, so no handler can be streamed an unbounded body.
+  `routes/kernel.go`, so no handler can be streamed an unbounded body.
   (`vento/security.go`)
 - **CSRF cookie `Secure` flag** — now set automatically whenever the request
   arrived over TLS (`c.Request.TLS != nil`), so HTTPS deployments never send

@@ -9,17 +9,16 @@ attack surface.
 
 ## The default protection stack
 
-Wired in `routes/web.go`, outermost first:
+Declared in `GlobalMiddleware()` (`routes/kernel.go`) and applied to every
+route, outermost first:
 
 ```go
-app.Use(
-    vento.Logger,
-    vento.Recovery,
-    vento.SecurityHeaders,
-    vento.BodyLimit(1<<20),
-    vento.RateLimiter(10, 20),
-    vento.CSRFProtection("/users"),
-)
+vento.Logger,
+vento.Recovery,
+vento.SecurityHeaders,
+vento.BodyLimit(1 << 20),
+vento.RateLimiter(10, 20),
+vento.CSRFProtection(),        // pass path prefixes to exempt, e.g. a JSON API
 ```
 
 Plus two protections that aren't middleware: hardened server timeouts in
@@ -62,8 +61,9 @@ auditable record of that decision.
 
 **Why chains being compiled at startup matters for security.** Middleware
 coverage is determined by registration order and nothing else — you can
-audit exactly what protects every route by reading `routes/web.go` top to
-bottom. There is no runtime hook that can silently remove a protection.
+audit exactly what protects every route by reading `GlobalMiddleware()` in
+`routes/kernel.go`. There is no runtime hook that can silently remove a
+protection.
 
 **Why startup failures are fatal.** Half-configured deployments (missing
 DB config, unparseable template) abort the boot loudly rather than serving

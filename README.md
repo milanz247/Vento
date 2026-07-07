@@ -117,7 +117,7 @@ vento-app/
 ├── models/        # GORM data models + model registry
 ├── middleware/    # Your own middleware (e.g. RequestID)
 ├── migrations/    # Versioned, self-registering schema migrations
-├── routes/        # Endpoint declarations + global middleware chain
+├── routes/        # kernel.go (global middleware stack) + web.go (the route table)
 ├── views/         # HTML templates (layouts + pages + partials)
 ├── cmd/vento/      # The `vento` CLI
 ├── docs/          # Full documentation

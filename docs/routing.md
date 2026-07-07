@@ -7,8 +7,9 @@ rules with worked examples, and the internals in `vento/router.go`.
 
 ## Registering routes
 
-All registration happens in `routes/web.go`, inside `RegisterRoutes`. The
-starter ships with just the welcome route:
+All route registration happens in `routes/web.go`, inside the `web` function
+— just route declarations, no middleware wiring (that lives in
+`routes/kernel.go`). The starter ships with just the welcome route:
 
 ```go
 app.GET("/", controllers.Index)
@@ -39,9 +40,10 @@ Trailing arguments are **route-specific middlewares**, which run after the
 global chain and before the controller — `/secret` above is guarded by
 `TokenAuthMiddleware` without affecting any other route.
 
-Registration must come **after** `app.Use(...)`: each route's full handler
-chain (globals + route middlewares + controller) is compiled at this moment
-and stored on the route's Trie node. See
+Registration must come **after** the global `app.Use(...)`: each route's full
+handler chain (globals + route middlewares + controller) is compiled at this
+moment and stored on the route's Trie node. `RegisterRoutes` guarantees this
+by applying `GlobalMiddleware()` before it calls `web(app)`. See
 [Bootstrapping](bootstrapping.md#step-6--routesregisterroutesapp) for why.
 
 ## Dynamic parameters

@@ -189,8 +189,8 @@ Conventions at work here, all covered elsewhere in the docs:
 
 ## Step 4 — Routes
 
-In `routes/web.go`, inside `RegisterRoutes` (after the `app.Use(...)`
-block, like every route):
+In `routes/web.go`, inside the `web` function (the global middleware stack
+is already applied from `routes/kernel.go` — here you just add routes):
 
 ```go
 // Todo list: full CRUD, HTMX-driven. CSRF-protected the normal way —

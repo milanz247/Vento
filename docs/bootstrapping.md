@@ -128,24 +128,24 @@ partials.
 
 ## Step 6 — `routes.RegisterRoutes(app)`
 
-`routes/web.go`. Two phases, and **their order is load-bearing**:
+`routes/kernel.go`. `RegisterRoutes` runs two phases, and **their order is
+load-bearing**:
 
 ```go
-app.Use(                       // phase 1: global middlewares
-    vento.Logger,
-    vento.Recovery,
-    middleware.RequestID,      // your own middleware (the middleware/ package)
-    vento.SecurityHeaders,
-    vento.BodyLimit(1<<20),
-    vento.RateLimiter(10, 20),
-    vento.CSRFProtection(),
-)
-
-app.GET("/", controllers.Index)   // phase 2: endpoints
-// ...
+func RegisterRoutes(app *vento.Engine) {
+    app.Use(GlobalMiddleware()...)   // phase 1: the global stack (kernel.go)
+    web(app)                         // phase 2: the route table (web.go)
+}
 ```
 
-Here is why order matters. `Use` just appends to `Engine.middlewares`. But
+`GlobalMiddleware()` (also in `kernel.go`) returns the stack — `Logger`,
+`Recovery`, `middleware.RequestID`, `SecurityHeaders`, `BodyLimit`,
+`RateLimiter`, `CSRFProtection` — while `web(app)` (in `web.go`) is nothing
+but `app.GET`/`app.POST`/... lines. Splitting them means you add routes
+without ever touching the middleware wiring, and vice versa.
+
+Here is why the order inside `RegisterRoutes` matters. `Use` just appends to
+`Engine.middlewares`. But
 each `GET`/`POST`/... call runs `addRoute`, which **compiles the route's
 complete chain right then**:
 
@@ -162,7 +162,7 @@ The chain is a flat `[]HandlerFunc` stored on the route's Trie node. A
 middleware registered *after* a route simply is not in that route's slice —
 there is no late binding, no lookup at request time. This is a deliberate
 trade: it removes all per-request chain assembly, and it makes middleware
-coverage auditable by reading `routes/web.go` top to bottom.
+coverage auditable by reading `GlobalMiddleware()` in `routes/kernel.go`.
 
 The `RateLimiter` and `CSRFProtection` entries are factory calls — functions
 that return a `HandlerFunc` closed over their configuration (bucket map,

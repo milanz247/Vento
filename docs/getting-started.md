@@ -111,7 +111,7 @@ begin from a clean slate rather than deleting demo code.
 
 ## Add your first route
 
-Open `routes/web.go` and add a line inside `RegisterRoutes`:
+Open `routes/web.go` and add a line inside the `web` function:
 
 ```go
 app.GET("/hello", controllers.Hello)

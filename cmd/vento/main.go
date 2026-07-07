@@ -440,7 +440,7 @@ func makeMiddleware(rawName string) {
 	}
 	path := filepath.Join("middleware", snakeCase(studly)+".go")
 	writeScaffold(path, fmt.Sprintf(middlewareStub, studly))
-	fmt.Println(yellow + "next:" + reset + " register it in routes/web.go (app.Use(middleware." + studly + ") or per route)")
+	fmt.Println(yellow + "next:" + reset + " add middleware." + studly + " to GlobalMiddleware() in routes/kernel.go, or attach it to a route in routes/web.go")
 }
 
 // migrationStub is written by make:migration. %[1]s is the full migration

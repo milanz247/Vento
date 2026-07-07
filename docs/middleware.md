@@ -50,8 +50,9 @@ app.GET("/secret", controllers.SecretDemo,
 
 **`Use` must be called before the routes it should cover** — chains are
 compiled per route at registration, so a later `Use` cannot retrofit
-earlier routes. The idiomatic layout (`routes/web.go` calls `Use` first,
-then maps endpoints) satisfies this naturally.
+earlier routes. `RegisterRoutes` (in `routes/kernel.go`) satisfies this for
+you: it calls `app.Use(GlobalMiddleware()...)` first, then `web(app)` maps
+the endpoints.
 
 ## Writing your own middleware
 
@@ -222,21 +223,28 @@ How HTMX requests pass this automatically is covered in
 
 ## The default chain
 
+The global stack is declared once, in `GlobalMiddleware()` in
+`routes/kernel.go` (Vento's equivalent of Laravel's `app/Http/Kernel.php`):
+
 ```go
-app.Use(
-    vento.Logger,              // timing + audit line for everything below
-    vento.Recovery,            // panics become clean 500s
-    middleware.RequestID,      // your own middleware: X-Request-ID for tracing
-    vento.SecurityHeaders,     // headers stamped before any body write
-    vento.BodyLimit(1<<20),    // bodies capped before any handler reads
-    vento.RateLimiter(10, 20), // floods rejected early
-    vento.CSRFProtection(),    // browser form posts guarded (exempt prefixes go here)
-)
+// routes/kernel.go
+func GlobalMiddleware() []vento.HandlerFunc {
+    return []vento.HandlerFunc{
+        vento.Logger,              // timing + audit line for everything below
+        vento.Recovery,            // panics become clean 500s
+        middleware.RequestID,      // your own middleware: X-Request-ID for tracing
+        vento.SecurityHeaders,     // headers stamped before any body write
+        vento.BodyLimit(1 << 20),  // bodies capped before any handler reads
+        vento.RateLimiter(10, 20), // floods rejected early
+        vento.CSRFProtection(),    // browser form posts guarded (exempt prefixes go here)
+    }
+}
 ```
 
-`middleware.RequestID` is application code (the `middleware/` package); every
-`vento.*` entry is a framework built-in. Read outermost-first, and note the
-deliberate ordering: cheap, broad
+`RegisterRoutes` installs it with `app.Use(GlobalMiddleware()...)` before any
+route is mapped. `middleware.RequestID` is application code (the
+`middleware/` package); every `vento.*` entry is a framework built-in. Read
+outermost-first, and note the deliberate ordering: cheap, broad
 protections run before expensive or request-specific ones, so
 obviously-bad traffic is rejected with minimum work. Keep that convention
 when inserting your own.
