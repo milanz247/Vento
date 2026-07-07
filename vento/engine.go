@@ -43,13 +43,15 @@ type Engine struct {
 	statics   []staticMount       // URL-prefix -> http.Handler mounts registered via Static
 }
 
-// New instantiates a ready-to-use Engine whose pool generates clean
-// Context instances on demand (until recycling makes that unnecessary).
+// New instantiates a ready-to-use Engine, pre-loaded with DefaultMiddleware
+// so it is secure out of the box, and whose pool generates clean Context
+// instances on demand (until recycling makes that unnecessary).
 func New() *Engine {
 	e := &Engine{
 		router: newRouter(),
 	}
 	e.pool.New = func() any { return &Context{} }
+	e.Use(DefaultMiddleware()...)
 	return e
 }
 

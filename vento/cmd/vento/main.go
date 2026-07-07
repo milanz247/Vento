@@ -7,9 +7,9 @@
 //	vento db:rollback               revert the most recently applied migration
 //	vento db:automigrate            GORM AutoMigrate every model in models.All() (dev)
 //	vento db:seed                   run all registered seeders (idempotent)
-//	vento make:controller Name      scaffold controllers/name_controller.go
-//	vento make:model Name           scaffold models/name.go
-//	vento make:middleware Name      scaffold middleware/name.go
+//	vento make:controller Name      scaffold app/controllers/name_controller.go
+//	vento make:model Name           scaffold app/models/name.go
+//	vento make:middleware Name      scaffold app/middleware/name.go
 //	vento make:migration name       scaffold migrations/<timestamp>_name.go
 package main
 
@@ -24,8 +24,8 @@ import (
 	"time"
 	"unicode"
 
+	"vento-app/app/models"
 	"vento-app/migrations"
-	"vento-app/models"
 	"vento-app/vento"
 
 	_ "github.com/go-sql-driver/mysql"
@@ -104,9 +104,9 @@ func usage() {
   ` + green + `db:rollback` + reset + `             revert the most recently applied migration
   ` + green + `db:automigrate` + reset + `          GORM AutoMigrate every model in models.All() (dev shortcut)
   ` + green + `db:seed` + reset + `                 run all registered seeders (safe to re-run)
-  ` + green + `make:controller <Name>` + reset + `  scaffold controllers/<name>_controller.go
-  ` + green + `make:model <Name>` + reset + `       scaffold models/<name>.go
-  ` + green + `make:middleware <Name>` + reset + `  scaffold middleware/<name>.go
+  ` + green + `make:controller <Name>` + reset + `  scaffold app/controllers/<name>_controller.go
+  ` + green + `make:model <Name>` + reset + `       scaffold app/models/<name>.go
+  ` + green + `make:middleware <Name>` + reset + `  scaffold app/middleware/<name>.go
   ` + green + `make:migration <name>` + reset + `   scaffold migrations/<timestamp>_<name>.go`)
 }
 
@@ -388,7 +388,7 @@ func makeController(rawName string) {
 	if studly == "" {
 		fail(fmt.Sprintf("%q is not a usable controller name (letters/digits only)", rawName))
 	}
-	path := filepath.Join("controllers", snakeCase(studly)+"_controller.go")
+	path := filepath.Join("app", "controllers", snakeCase(studly)+"_controller.go")
 	writeScaffold(path, fmt.Sprintf(controllerStub, studly, strings.ToLower(studly)))
 }
 
@@ -411,9 +411,9 @@ func makeModel(rawName string) {
 	if studly == "" {
 		fail(fmt.Sprintf("%q is not a usable model name (letters/digits only)", rawName))
 	}
-	path := filepath.Join("models", snakeCase(studly)+".go")
+	path := filepath.Join("app", "models", snakeCase(studly)+".go")
 	writeScaffold(path, fmt.Sprintf(modelStub, studly))
-	fmt.Println(yellow + "next:" + reset + " add &" + studly + "{} to models.All() in models/user.go")
+	fmt.Println(yellow + "next:" + reset + " add &" + studly + "{} to models.All() in app/models/user.go")
 }
 
 // middlewareStub is written by make:middleware. %[1]s is the StudlyCase name.
@@ -438,9 +438,9 @@ func makeMiddleware(rawName string) {
 	if studly == "" {
 		fail(fmt.Sprintf("%q is not a usable middleware name (letters/digits only)", rawName))
 	}
-	path := filepath.Join("middleware", snakeCase(studly)+".go")
+	path := filepath.Join("app", "middleware", snakeCase(studly)+".go")
 	writeScaffold(path, fmt.Sprintf(middlewareStub, studly))
-	fmt.Println(yellow + "next:" + reset + " add middleware." + studly + " to GlobalMiddleware() in routes/kernel.go, or attach it to a route in routes/web.go")
+	fmt.Println(yellow + "next:" + reset + " add middleware." + studly + " to app.Use(...) in main.go, or attach it to a route in routes/web.go")
 }
 
 // migrationStub is written by make:migration. %[1]s is the full migration

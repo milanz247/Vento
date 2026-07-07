@@ -1,15 +1,16 @@
 // Command main bootstraps the Vento application: load config, connect
-// MySQL, compile views, register routes, and start the server. Handlers
-// live in controllers, route registration in routes, and schema
-// management in the CLI (vento db:migrate) - main.go stays a thin entry
-// point.
+// MySQL, compile views, wire app-specific middleware, map every route
+// table, and start the server. Handlers live in controllers, route tables
+// in routes, and schema management in the CLI (vento db:migrate) - main.go
+// is the one place that assembles them, so it stays a thin entry point.
 package main
 
 import (
 	"log"
 
-	"vento-app/vento"
+	"vento-app/app/middleware"
 	"vento-app/routes"
+	"vento-app/vento"
 )
 
 func main() {
@@ -22,7 +23,7 @@ func main() {
 		log.Fatal("vento: DB_HOST/DB_USER/DB_NAME missing from .env - MySQL configuration is required")
 	}
 
-	app := vento.New()
+	app := vento.New() // pre-loaded with vento.DefaultMiddleware - see vento/kernel.go
 
 	if err := app.ConnectDB(dsn); err != nil {
 		log.Fatalf("vento: could not connect to MySQL: %v", err)
@@ -30,11 +31,16 @@ func main() {
 
 	app.LoadHTMLGlob("views/**/*")
 
-	routes.RegisterRoutes(app)
+	// App-specific middleware, then every route table. Vento compiles each
+	// route's handler chain at registration time, so Use must run first -
+	// which the order below does naturally.
+	app.Use(middleware.RequestID)
+	routes.Web(app)
+	routes.Api(app)
 
-	// Static must be called after RegisterRoutes (which calls Use first) so
-	// static asset requests get the same global middleware coverage -
-	// Logger, Recovery, SecurityHeaders - as routed requests.
+	// Static must be called after Use() so static asset requests get the
+	// same global middleware coverage - Logger, Recovery, SecurityHeaders -
+	// as routed requests.
 	app.Static("/public", "./public")
 
 	port := env["PORT"]

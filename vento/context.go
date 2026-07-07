@@ -12,6 +12,13 @@ import (
 	"gorm.io/gorm"
 )
 
+// H is a shorthand for the map type view data is normally passed in, e.g.
+// c.View("index", vento.H{"Message": "hi"}). It's just a named
+// map[string]any, so it drops straight into ExecuteTemplate the same as a
+// plain map literal would - it exists purely to shave the "map[string]any"
+// boilerplate off every controller.
+type H map[string]any
+
 // Context wraps the standard http.ResponseWriter and *http.Request pair
 // passed into every handler, so application code never touches net/http
 // directly for common operations - the core of Vento's DX.
@@ -31,6 +38,7 @@ type Context struct {
 
 	db        *gorm.DB            // injected by the Engine before the chain runs
 	templates map[string]*viewSet // pre-stitched layout+page sets, injected by the Engine
+	viewData  H                   // values accumulated via Set, rendered by View when called with no data
 }
 
 // Reset re-initialises a pooled Context for a new request/response cycle,
@@ -46,6 +54,27 @@ func (c *Context) Reset(w http.ResponseWriter, r *http.Request) {
 	c.index = -1
 	c.db = nil
 	c.templates = nil
+	c.viewData = nil
+}
+
+// Set stashes a key/value pair on the request, readable later via Get or,
+// with no arguments needed, rendered straight into the view by View/HTML -
+// c.View(name) with no data argument sends whatever has been Set so far.
+// This lets middleware and the controller build up view data incrementally
+// instead of assembling one map literal by hand. Values set earlier in the
+// handler chain are visible to everything downstream, including the final
+// controller.
+func (c *Context) Set(key string, value any) {
+	if c.viewData == nil {
+		c.viewData = make(H)
+	}
+	c.viewData[key] = value
+}
+
+// Get returns a value previously stored with Set, and whether it was found.
+func (c *Context) Get(key string) (any, bool) {
+	v, ok := c.viewData[key]
+	return v, ok
 }
 
 // Next advances to and runs the next handler in the chain. Middlewares
@@ -117,14 +146,23 @@ func (c *Context) DB() *gorm.DB {
 // status 200, automatically stitched into the shared layout
 // (views/layouts/base.html). The layout/page composition was pre-compiled
 // at LoadHTMLGlob time, so controllers carry zero template boilerplate.
-func (c *Context) View(name string, data any) {
-	c.HTML(http.StatusOK, name, data)
+//
+// data is optional and accepts anything a template can range/index/print
+// over - a vento.H{...} or map[string]any literal, a struct, a slice, or
+// nothing at all:
+//
+//	c.View("index", vento.H{"Message": "hi"})  // map shorthand
+//	c.View("index", user)                      // any struct or value
+//	c.View("index")                            // renders values set via c.Set
+func (c *Context) View(name string, data ...any) {
+	c.HTML(http.StatusOK, name, data...)
 }
 
 // HTML renders the named page from the pre-stitched view cache with an
 // explicit status code, setting Content-Type: text/html. name may be
-// given with or without the .html extension.
-func (c *Context) HTML(statusCode int, name string, data any) {
+// given with or without the .html extension. data is optional; see View
+// for the accepted shapes.
+func (c *Context) HTML(statusCode int, name string, data ...any) {
 	view := c.templates[strings.TrimSuffix(name, ".html")]
 	if view == nil {
 		http.Error(c.Writer, "vento: unknown view "+name+" (is LoadHTMLGlob configured?)", http.StatusInternalServerError)
@@ -135,9 +173,22 @@ func (c *Context) HTML(statusCode int, name string, data any) {
 	c.Writer.Header().Set("Content-Type", "text/html; charset=utf-8")
 	c.Writer.WriteHeader(statusCode)
 
-	if err := view.tmpl.ExecuteTemplate(c.Writer, view.entry, data); err != nil {
+	if err := view.tmpl.ExecuteTemplate(c.Writer, view.entry, c.viewPayload(data...)); err != nil {
 		http.Error(c.Writer, err.Error(), http.StatusInternalServerError)
 	}
+}
+
+// viewPayload resolves what View/HTML/Partial hand to the template: the
+// explicit data argument when one was passed, otherwise whatever has been
+// accumulated via Set (or nil if neither was used).
+func (c *Context) viewPayload(data ...any) any {
+	if len(data) > 0 {
+		return data[0]
+	}
+	if c.viewData == nil {
+		return nil
+	}
+	return c.viewData
 }
 
 // IsHTMX reports whether the current request was issued by HTMX rather than
@@ -157,8 +208,9 @@ func (c *Context) IsHTMX() bool {
 // partial-page updates. name may be given with or without the .html
 // extension, and is looked up in the same pre-stitched view cache as
 // View/HTML (so any file under views/, not just ones under a "partials/"
-// directory, can be rendered this way).
-func (c *Context) Partial(name string, data any) {
+// directory, can be rendered this way). data is optional; see View for the
+// accepted shapes.
+func (c *Context) Partial(name string, data ...any) {
 	view := c.templates[strings.TrimSuffix(name, ".html")]
 	if view == nil {
 		http.Error(c.Writer, "vento: unknown view "+name+" (is LoadHTMLGlob configured?)", http.StatusInternalServerError)
@@ -169,7 +221,7 @@ func (c *Context) Partial(name string, data any) {
 	c.Writer.Header().Set("Content-Type", "text/html; charset=utf-8")
 	c.Writer.WriteHeader(http.StatusOK)
 
-	if err := view.tmpl.ExecuteTemplate(c.Writer, "content", data); err != nil {
+	if err := view.tmpl.ExecuteTemplate(c.Writer, "content", c.viewPayload(data...)); err != nil {
 		http.Error(c.Writer, err.Error(), http.StatusInternalServerError)
 	}
 }

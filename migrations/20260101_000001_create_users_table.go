@@ -3,7 +3,7 @@ package migrations
 import (
 	"gorm.io/gorm"
 
-	"vento-app/models"
+	"vento-app/app/models"
 	"vento-app/vento"
 )
 

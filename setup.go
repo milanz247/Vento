@@ -106,10 +106,10 @@ func runNpm(args ...string) error {
 	return cmd.Run()
 }
 
-// build compiles cmd/vento to the given output path.
+// build compiles vento/cmd/vento to the given output path.
 func build(output string) {
 	fmt.Printf("building %s ...\n", output)
-	cmd := exec.Command("go", "build", "-o", output, "./cmd/vento")
+	cmd := exec.Command("go", "build", "-o", output, "./vento/cmd/vento")
 	cmd.Stdout = os.Stdout
 	cmd.Stderr = os.Stderr
 	if err := cmd.Run(); err != nil {
