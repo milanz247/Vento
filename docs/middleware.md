@@ -55,14 +55,34 @@ then maps endpoints) satisfies this naturally.
 
 ## Writing your own middleware
 
-A plain middleware:
+Your own middleware lives in the **`middleware/` package** — Vento's
+equivalent of Laravel's `app/Http/Middleware`, kept separate from the
+framework's built-ins under `vento/`. Scaffold one with:
+
+```bash
+./bin/vento make:middleware RequireAuth   # -> middleware/require_auth.go
+```
+
+A plain middleware is just a `func(*vento.Context)` that ends in `c.Next()`.
+The shipped example, `middleware/request_id.go`, stamps a trace ID onto
+every request and response:
 
 ```go
+// middleware/request_id.go
 func RequestID(c *vento.Context) {
-    c.Writer.Header().Set("X-Request-ID", newID())
+    id := c.Request.Header.Get("X-Request-ID")
+    if id == "" {
+        id = newID()
+        c.Request.Header.Set("X-Request-ID", id)
+    }
+    c.Writer.Header().Set("X-Request-ID", id)
     c.Next()
 }
 ```
+
+Register it in `routes/web.go` — globally via `app.Use(middleware.RequestID)`
+(as the demo does), or per route as a trailing argument to
+`app.GET`/`app.POST`/...
 
 A **configurable** middleware is a factory: a function that runs once (at
 registration) and returns the closure that runs per request. Expensive
@@ -206,14 +226,17 @@ How HTMX requests pass this automatically is covered in
 app.Use(
     vento.Logger,              // timing + audit line for everything below
     vento.Recovery,            // panics become clean 500s
+    middleware.RequestID,      // your own middleware: X-Request-ID for tracing
     vento.SecurityHeaders,     // headers stamped before any body write
     vento.BodyLimit(1<<20),    // bodies capped before any handler reads
     vento.RateLimiter(10, 20), // floods rejected early
-    vento.CSRFProtection("/users"), // form endpoints guarded; JSON API exempt
+    vento.CSRFProtection(),    // browser form posts guarded (exempt prefixes go here)
 )
 ```
 
-Read outermost-first, and note the deliberate ordering: cheap, broad
+`middleware.RequestID` is application code (the `middleware/` package); every
+`vento.*` entry is a framework built-in. Read outermost-first, and note the
+deliberate ordering: cheap, broad
 protections run before expensive or request-specific ones, so
 obviously-bad traffic is rejected with minimum work. Keep that convention
 when inserting your own.

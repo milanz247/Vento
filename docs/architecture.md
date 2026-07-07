@@ -3,7 +3,7 @@
 This page explains how Vento is built: the three core types (`Engine`,
 `Context`, the Trie router), how they cooperate on each request, and the
 performance model that shapes every design decision. The whole framework is
-seven files under `vento/` — this page maps them.
+eight files under `vento/` — this page maps them.
 
 | File | Owns |
 |---|---|
@@ -12,6 +12,7 @@ seven files under `vento/` — this page maps them.
 | `vento/router.go` | The per-method Trie: `node`, insert, search |
 | `vento/middlewares.go` | `Logger`, `Recovery` |
 | `vento/security.go` | `SecurityHeaders`, `BodyLimit`, `RateLimiter`, `CSRFProtection` |
+| `vento/migrator.go` | `Migration`, the migration runner, `schema_migrations` tracking |
 | `vento/static.go` | Static file mounts |
 | `vento/config.go` | `.env` loading, MySQL DSN assembly |
 

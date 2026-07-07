@@ -22,7 +22,7 @@ object, chainable middleware, an MVC-style project layout, and an
 Artisan-style CLI — built directly on `net/http` and `html/template`, with
 GORM/MySQL as its only external dependency. It's designed to be **read and
 understood end to end**, not just used as a black box: the entire framework
-is seven files under `vento/`, and the [documentation](docs/README.md)
+is eight files under `vento/`, and the [documentation](docs/README.md)
 explains how every piece is built and why.
 
 ## Features
@@ -32,8 +32,9 @@ explains how every piece is built and why.
   backtracking.
 - **Pooled, zero-allocation `Context`** — recycled via `sync.Pool`; handler
   chains are compiled once at route-registration time, never per request.
-- **MVC-style structure** — `controllers/`, `models/`, `routes/`, with a
-  strict one-way import graph (`main → routes → controllers → models/vento`).
+- **MVC-style structure** — `controllers/`, `models/`, `middleware/`,
+  `migrations/`, `routes/`, with a strict one-way import graph
+  (`main → routes → controllers → models`, everything → `vento`).
 - **Layout-based HTML templating** — every page is pre-stitched into the
   shared layout at startup (`Engine.LoadHTMLGlob`); rendering is a single
   `ExecuteTemplate` call, with `html/template`'s XSS-safe escaping built in.
@@ -41,14 +42,18 @@ explains how every piece is built and why.
   handler serve full pages and DOM fragments; opt in when you need it. The
   [Todo tutorial](docs/tutorial-todo.md) builds a full example. See
   [docs/htmx.md](docs/htmx.md).
-- **GORM + MySQL** — models, an explicit migration registry, and
-  idempotent seeders, all driven by a single `.env` file.
+- **GORM + MySQL** — models, a versioned migration registry (`db:migrate` /
+  `db:rollback` over self-registering migration files, tracked in
+  `schema_migrations`), and idempotent seeders, all driven by a single
+  `.env` file.
 - **Security on by default** — per-IP rate limiting, double-submit-cookie
   CSRF, request body limits, hardened server timeouts, security headers,
   panic recovery, and an integrity-pinned CDN script. The full threat
   model is written down in [`SECURITY_AUDIT.md`](SECURITY_AUDIT.md).
-- **Artisan-style CLI (`vento`)** — `run` (hot reload via air),
-  `db:migrate`, `db:seed`, and `make:controller` scaffolding.
+- **Artisan-style CLI (`vento`)** — `run` (hot reload via air), the `db:*`
+  commands (`db:migrate`, `db:rollback`, `db:automigrate`, `db:seed`), and
+  `make:controller` / `make:model` / `make:middleware` / `make:migration`
+  scaffolding.
 - **Tailwind CSS, built locally** — a clean, minimal welcome page; no CSS
   CDN at runtime.
 
@@ -107,9 +112,11 @@ deep dives into how the framework itself is built:
 
 ```
 vento-app/
-├── vento/          # The framework: Engine, Context, router, middleware, security, static, config
+├── vento/          # The framework: Engine, Context, router, middleware, security, migrator, static, config
 ├── controllers/   # Request handlers
-├── models/        # GORM data models + migration registry
+├── models/        # GORM data models + model registry
+├── middleware/    # Your own middleware (e.g. RequestID)
+├── migrations/    # Versioned, self-registering schema migrations
 ├── routes/        # Endpoint declarations + global middleware chain
 ├── views/         # HTML templates (layouts + pages + partials)
 ├── cmd/vento/      # The `vento` CLI

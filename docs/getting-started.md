@@ -74,9 +74,11 @@ edit. Details in [Front-end: Tailwind & Static Assets](frontend-tailwind.md).
 ./bin/vento db:migrate
 ```
 
-Runs GORM `AutoMigrate` over every model registered in `models.All()`
-(currently `models.User`). Safe to re-run at any time — it only adds
-missing tables/columns, never drops.
+Applies every pending migration in `migrations/` — the starter ships one
+that creates the `users` table — and records each in a `schema_migrations`
+table, so it only ever runs migrations that haven't run yet. Safe to re-run
+at any time. (While a model's shape is still changing, `./bin/vento
+db:automigrate` is a quicker, untracked sync straight off `models.All()`.)
 
 ## 5. (Optional) seed sample data
 
@@ -137,5 +139,5 @@ That's the whole loop: a route in `web.go`, a handler in `controllers/`.
 - [Project Structure](project-structure.md) — orient yourself in the codebase
 - [Bootstrapping](bootstrapping.md) — understand the startup you just ran
 - [Routing](routing.md) + [The Context API](context.md) — params, JSON, views, middleware
-- [Database](database.md) — add a model and wire it into `db:migrate`
+- [Database](database.md) — add a model and write a migration for it
 - [Tutorial: Building a Todo List](tutorial-todo.md) — a full CRUD feature end to end

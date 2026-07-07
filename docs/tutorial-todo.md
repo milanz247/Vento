@@ -43,7 +43,7 @@ type Todo struct {
 `gorm.Model` provides `ID`, `CreatedAt`, `UpdatedAt`, and soft-delete
 `DeletedAt` ([Database § Models](database.md#models)).
 
-Register it in the migration registry — append one line to `models.All()`
+Register it in the model registry — append one line to `models.All()`
 in `models/user.go`:
 
 ```go
@@ -55,17 +55,39 @@ func All() []any {
 }
 ```
 
-That registry is the *only* thing `db:migrate` reads
-([Database § The migration registry](database.md#the-migration-registry)).
+That list is what `db:automigrate` and the seeders read
+([Database § The model registry](database.md#the-model-registry)).
 
 ## Step 2 — Migrate
+
+Scaffold a migration for the new table:
+
+```bash
+./bin/vento make:migration create_todos_table
+```
+
+Open the generated `migrations/<timestamp>_create_todos_table.go`, add
+`"vento-app/models"` to its imports, and fill in `Up`/`Down`:
+
+```go
+Up: func(tx *gorm.DB) error {
+	return tx.AutoMigrate(&models.Todo{})
+},
+Down: func(tx *gorm.DB) error {
+	return tx.Migrator().DropTable(&models.Todo{})
+},
+```
+
+Then apply it:
 
 ```bash
 ./bin/vento db:migrate
 ```
 
-You should see `migrated *models.Todo` — the `todos` table now exists.
-`AutoMigrate` is additive and idempotent, so re-running is always safe.
+You should see `migrated <timestamp>_create_todos_table` — the `todos` table
+now exists. `db:migrate` records each applied migration in
+`schema_migrations`, so re-running only ever runs new ones (and
+`./bin/vento db:rollback` reverts this one via its `Down`).
 
 ## Step 3 — The controller
 
@@ -381,7 +403,7 @@ curl -s -b "$JAR" -H "X-CSRF-Token: $TOKEN" -X POST -d 'title=' localhost:8080/t
 | Layer | What this feature used | Guide |
 |---|---|---|
 | Model | `Todo` struct + `models.All()` registration | [Database](database.md) |
-| Migration | `vento db:migrate` → `AutoMigrate` | [Database § Migrations](database.md#migrations) |
+| Migration | `make:migration` → `Up`/`Down` → `db:migrate` | [Database § Migrations](database.md#migrations) |
 | Routing | static + `:id` routes, `GET`/`POST`/`DELETE` trees | [Routing](routing.md) |
 | Context | `Param`, `FormValue`, `View`, `Partial`, `String`, `Abort`, `DB` | [The Context API](context.md) |
 | Views | a page, a partial, per-page template namespaces | [Views & Templates](views-templates.md) |

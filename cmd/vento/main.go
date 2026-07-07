@@ -1,11 +1,16 @@
 // Command vento is the framework's Artisan-style developer tool. Run it
-// from the project root (it reads ./.env and writes under ./controllers):
+// from the project root (it reads ./.env and writes under the app packages):
 //
-//	vento run                    start the app (hot-reload via air when available)
-//	vento db:migrate             migrate all registered models (offers to create
-//	                            the database first if it doesn't exist yet)
-//	vento db:seed                run all registered seeders (idempotent)
-//	vento make:controller Name   scaffold controllers/name_controller.go
+//	vento run                       start the app (hot-reload via air when available)
+//	vento db:migrate                apply every pending migration (offers to create
+//	                               the database first if it doesn't exist yet)
+//	vento db:rollback               revert the most recently applied migration
+//	vento db:automigrate            GORM AutoMigrate every model in models.All() (dev)
+//	vento db:seed                   run all registered seeders (idempotent)
+//	vento make:controller Name      scaffold controllers/name_controller.go
+//	vento make:model Name           scaffold models/name.go
+//	vento make:middleware Name      scaffold middleware/name.go
+//	vento make:migration name       scaffold migrations/<timestamp>_name.go
 package main
 
 import (
@@ -16,10 +21,12 @@ import (
 	"os/exec"
 	"path/filepath"
 	"strings"
+	"time"
 	"unicode"
 
-	"vento-app/vento"
+	"vento-app/migrations"
 	"vento-app/models"
+	"vento-app/vento"
 
 	_ "github.com/go-sql-driver/mysql"
 	"gorm.io/gorm"
@@ -56,17 +63,36 @@ func main() {
 	case "run", "serve":
 		runApp()
 	case "db:migrate":
-		migrate(openDB(true))
+		runMigrations(openDB(true))
+	case "db:rollback":
+		rollback(openDB(false))
+	case "db:automigrate":
+		autoMigrate(openDB(true))
 	case "db:seed":
 		seed(openDB(false))
 	case "make:controller":
-		if len(os.Args) < 3 {
-			fail("make:controller requires a name, e.g. vento make:controller Post")
-		}
+		requireName("make:controller", "Post")
 		makeController(os.Args[2])
+	case "make:model":
+		requireName("make:model", "Post")
+		makeModel(os.Args[2])
+	case "make:middleware":
+		requireName("make:middleware", "RequireAuth")
+		makeMiddleware(os.Args[2])
+	case "make:migration":
+		requireName("make:migration", "create_posts_table")
+		makeMigration(os.Args[2])
 	default:
 		usage()
 		os.Exit(1)
+	}
+}
+
+// requireName aborts with a usage hint when a make: command was invoked
+// without its trailing name argument.
+func requireName(cmd, example string) {
+	if len(os.Args) < 3 {
+		fail(cmd + " requires a name, e.g. vento " + cmd + " " + example)
 	}
 }
 
@@ -74,9 +100,14 @@ func usage() {
 	fmt.Println(bold + "usage:" + reset + ` vento <command>
 
   ` + green + `run | serve` + reset + `             start the app (hot-reload via air when installed)
-  ` + green + `db:migrate` + reset + `              run GORM AutoMigrate for every registered model
+  ` + green + `db:migrate` + reset + `              apply every pending migration
+  ` + green + `db:rollback` + reset + `             revert the most recently applied migration
+  ` + green + `db:automigrate` + reset + `          GORM AutoMigrate every model in models.All() (dev shortcut)
   ` + green + `db:seed` + reset + `                 run all registered seeders (safe to re-run)
-  ` + green + `make:controller <Name>` + reset + `  scaffold controllers/<name>_controller.go`)
+  ` + green + `make:controller <Name>` + reset + `  scaffold controllers/<name>_controller.go
+  ` + green + `make:model <Name>` + reset + `       scaffold models/<name>.go
+  ` + green + `make:middleware <Name>` + reset + `  scaffold middleware/<name>.go
+  ` + green + `make:migration <name>` + reset + `   scaffold migrations/<timestamp>_<name>.go`)
 }
 
 func fail(msg string) {
@@ -97,8 +128,7 @@ func runApp() {
 		fmt.Println(yellow + "air not found in PATH" + reset + ` - starting without hot-reload.
 For live reloading, install air:
 
-    go install github.com/air-verse/air@latest
-`)
+    go install github.com/air-verse/air@latest`)
 		cmd = exec.Command("go", "run", ".")
 	}
 
@@ -232,15 +262,51 @@ func ensureDatabaseExists(user, password, host, port, name string) {
 	fmt.Println(green + "created" + reset + " database " + name)
 }
 
-// migrate runs GORM AutoMigrate over every model in models.All().
-func migrate(db *gorm.DB) {
-	for _, model := range models.All() {
-		if err := db.AutoMigrate(model); err != nil {
-			fail(fmt.Sprintf("migrating %T failed: %v", model, err))
-		}
-		fmt.Printf(green+"migrated"+reset+" %T\n", model)
+// runMigrations applies every pending migration in migrations.All(),
+// recording each in the schema_migrations table so it never runs twice.
+func runMigrations(db *gorm.DB) {
+	applied, err := vento.RunMigrations(db, migrations.All())
+	if err != nil {
+		fail(err.Error())
+	}
+	if len(applied) == 0 {
+		fmt.Println(green + "nothing to migrate" + reset + " - database is up to date")
+		return
+	}
+	for _, id := range applied {
+		fmt.Printf(green+"migrated"+reset+" %s\n", id)
 	}
 	fmt.Println(bold + "db:migrate complete" + reset)
+}
+
+// rollback reverts the most recently applied migration by running its Down
+// function and deleting its schema_migrations row.
+func rollback(db *gorm.DB) {
+	id, err := vento.RollbackLastMigration(db, migrations.All())
+	if err != nil {
+		fail(err.Error())
+	}
+	if id == "" {
+		fmt.Println(green + "nothing to roll back" + reset + " - no migrations applied")
+		return
+	}
+	fmt.Printf(green+"rolled back"+reset+" %s\n", id)
+	fmt.Println(bold + "db:rollback complete" + reset)
+}
+
+// autoMigrate runs GORM AutoMigrate over every model in models.All() - an
+// untracked, additive schema sync handy for rapid prototyping. Prefer
+// versioned migrations (db:migrate) once the schema needs ordered,
+// reversible history.
+func autoMigrate(db *gorm.DB) {
+	all := models.All()
+	if err := vento.AutoMigrateModels(db, all); err != nil {
+		fail(err.Error())
+	}
+	for _, model := range all {
+		fmt.Printf(green+"auto-migrated"+reset+" %T\n", model)
+	}
+	fmt.Println(bold + "db:automigrate complete" + reset)
 }
 
 // seeder is one named, idempotent database seeding step.
@@ -322,13 +388,115 @@ func makeController(rawName string) {
 	if studly == "" {
 		fail(fmt.Sprintf("%q is not a usable controller name (letters/digits only)", rawName))
 	}
-
 	path := filepath.Join("controllers", snakeCase(studly)+"_controller.go")
+	writeScaffold(path, fmt.Sprintf(controllerStub, studly, strings.ToLower(studly)))
+}
+
+// modelStub is written by make:model. %[1]s is the StudlyCase name.
+const modelStub = `package models
+
+import "gorm.io/gorm"
+
+// %[1]s is a GORM model. Add fields below, then register it in All()
+// (models/user.go) so db:automigrate and the seeders can see it - or define
+// its table in a migration instead (vento make:migration).
+type %[1]s struct {
+	gorm.Model
+}
+`
+
+// makeModel scaffolds models/<snake>.go with a GORM model stub.
+func makeModel(rawName string) {
+	studly := studlyCase(rawName)
+	if studly == "" {
+		fail(fmt.Sprintf("%q is not a usable model name (letters/digits only)", rawName))
+	}
+	path := filepath.Join("models", snakeCase(studly)+".go")
+	writeScaffold(path, fmt.Sprintf(modelStub, studly))
+	fmt.Println(yellow + "next:" + reset + " add &" + studly + "{} to models.All() in models/user.go")
+}
+
+// middlewareStub is written by make:middleware. %[1]s is the StudlyCase name.
+const middlewareStub = `package middleware
+
+import "vento-app/vento"
+
+// %[1]s is a middleware: it runs on each request, then calls c.Next() to
+// hand control to the rest of the chain. Wire it in routes/web.go - globally
+// with app.Use(middleware.%[1]s), or per route as a trailing argument to
+// app.GET/POST/... To gatekeep, call c.Abort(code, msg) and return instead
+// of calling c.Next().
+func %[1]s(c *vento.Context) {
+	// ... your logic here ...
+	c.Next()
+}
+`
+
+// makeMiddleware scaffolds middleware/<snake>.go with a HandlerFunc stub.
+func makeMiddleware(rawName string) {
+	studly := studlyCase(rawName)
+	if studly == "" {
+		fail(fmt.Sprintf("%q is not a usable middleware name (letters/digits only)", rawName))
+	}
+	path := filepath.Join("middleware", snakeCase(studly)+".go")
+	writeScaffold(path, fmt.Sprintf(middlewareStub, studly))
+	fmt.Println(yellow + "next:" + reset + " register it in routes/web.go (app.Use(middleware." + studly + ") or per route)")
+}
+
+// migrationStub is written by make:migration. %[1]s is the full migration
+// ID (timestamp prefix + snake_case name).
+const migrationStub = `package migrations
+
+import (
+	"gorm.io/gorm"
+
+	"vento-app/vento"
+)
+
+// %[1]s
+func init() {
+	register(vento.Migration{
+		ID: "%[1]s",
+		Up: func(tx *gorm.DB) error {
+			// Apply the change, e.g.:
+			//   return tx.AutoMigrate(&models.Post{})
+			return nil
+		},
+		Down: func(tx *gorm.DB) error {
+			// Reverse the change, e.g.:
+			//   return tx.Migrator().DropTable(&models.Post{})
+			return nil
+		},
+	})
+}
+`
+
+// makeMigration scaffolds a timestamped, self-registering migration under
+// migrations/. The name is normalized to snake_case and prefixed with a UTC
+// timestamp so files sort chronologically - which is the order db:migrate
+// applies them in.
+func makeMigration(rawName string) {
+	slug := snakeCase(studlyCase(rawName))
+	if slug == "" {
+		fail(fmt.Sprintf("%q is not a usable migration name (letters/digits only)", rawName))
+	}
+	id := time.Now().UTC().Format("20060102_150405") + "_" + slug
+	path := filepath.Join("migrations", id+".go")
+	writeScaffold(path, fmt.Sprintf(migrationStub, id))
+}
+
+// writeScaffold writes content to path, creating the parent directory if
+// needed and refusing to clobber an existing file, then prints a success
+// line. Every make: command routes its file write through here.
+func writeScaffold(path, content string) {
 	if _, err := os.Stat(path); err == nil {
 		fail(path + " already exists - refusing to overwrite")
 	}
-
-	content := fmt.Sprintf(controllerStub, studly, strings.ToLower(studly))
+	if dir := filepath.Dir(path); dir != "." {
+		if err := os.MkdirAll(dir, 0o755); err != nil {
+			fail("creating " + dir + ": " + err.Error())
+		}
+	}
 	if err := os.WriteFile(path, []byte(content), 0o644); err != nil {
 		fail("writing " + path + ": " + err.Error())
 	}

@@ -6,6 +6,7 @@ package routes
 
 import (
 	"vento-app/controllers"
+	"vento-app/middleware"
 	"vento-app/vento"
 )
 
@@ -17,6 +18,8 @@ import (
 // before the route mappings - middleware order reads outermost first:
 //   - Logger wraps everything so even recovered panics get a timed line.
 //   - Recovery converts downstream panics into clean 500s.
+//   - RequestID stamps an X-Request-ID for tracing (your own middleware,
+//     from the app-level middleware package - see docs/middleware.md).
 //   - SecurityHeaders stamps hardening headers before any body is written.
 //   - BodyLimit (1 MiB) caps request bodies before any handler reads them.
 //   - RateLimiter (10 req/s, burst 20, per IP) rejects floods early.
@@ -26,6 +29,7 @@ func RegisterRoutes(app *vento.Engine) {
 	app.Use(
 		vento.Logger,
 		vento.Recovery,
+		middleware.RequestID,
 		vento.SecurityHeaders,
 		vento.BodyLimit(1<<20),
 		vento.RateLimiter(10, 20),

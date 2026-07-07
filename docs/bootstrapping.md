@@ -134,10 +134,11 @@ partials.
 app.Use(                       // phase 1: global middlewares
     vento.Logger,
     vento.Recovery,
+    middleware.RequestID,      // your own middleware (the middleware/ package)
     vento.SecurityHeaders,
     vento.BodyLimit(1<<20),
     vento.RateLimiter(10, 20),
-    vento.CSRFProtection("/users"),
+    vento.CSRFProtection(),
 )
 
 app.GET("/", controllers.Index)   // phase 2: endpoints

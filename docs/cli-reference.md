@@ -2,9 +2,9 @@
 
 Vento ships an Artisan-style developer CLI. Its source is
 `cmd/vento/main.go` — a single readable file: a `switch` over
-`os.Args[1]`, the seeder registry, and the scaffolding stub. It reads
-`./.env` and writes under `./controllers`, so **always run it from the
-project root**.
+`os.Args[1]`, the seeder registry, and the scaffolding stubs. It reads
+`./.env` and writes under the app packages (`controllers/`, `models/`,
+`middleware/`, `migrations/`), so **always run it from the project root**.
 
 ## Installing it
 
@@ -42,9 +42,21 @@ rapid saves with a 500 ms delay.
 
 ### `vento db:migrate`
 
+Applies every pending migration in `migrations.All()`, in `ID` order,
+recording each in the `schema_migrations` table so it never runs twice.
+Details in [Database § Migrations](database.md#migrations).
+
+### `vento db:rollback`
+
+Reverts the most recently applied migration: runs its `Down` and deletes its
+`schema_migrations` row. Refuses a migration that has no `Down`.
+
+### `vento db:automigrate`
+
 Runs GORM `AutoMigrate` over every model in `models.All()` — additive,
-idempotent, never drops anything. Details and limits in
-[Database § Migrations](database.md#migrations).
+idempotent, never drops anything, and **untracked**. The quick path while a
+schema is still in flux; graduate to migrations for reversible history.
+See [Database § Migrations](database.md#migrations).
 
 ### `vento db:seed`
 
@@ -65,11 +77,47 @@ vento make:controller blog-post   # -> controllers/blog_post_controller.go (Blog
 
 The name normalizes to StudlyCase for Go identifiers and snake_case for
 the filename; characters that aren't letters/digits act as word breaks.
-The command **refuses to overwrite** an existing file.
+
+### `vento make:model <Name>`
+
+Scaffolds `models/<snake>.go` with a `gorm.Model`-embedding struct, then
+reminds you to register it in `models.All()`:
+
+```bash
+vento make:model Post        # -> models/post.go (type Post struct { gorm.Model })
+```
+
+### `vento make:middleware <Name>`
+
+Scaffolds `middleware/<snake>.go` with a `func(*vento.Context)` stub, then
+reminds you to wire it into `routes/web.go`:
+
+```bash
+vento make:middleware RequireAuth   # -> middleware/require_auth.go
+```
+
+### `vento make:migration <name>`
+
+Scaffolds a timestamped, self-registering migration under `migrations/`. The
+name is normalized to snake_case and prefixed with a UTC timestamp, so files
+sort chronologically — which is apply order:
+
+```bash
+vento make:migration create_posts_table
+# -> migrations/20260707_142530_create_posts_table.go
+```
+
+Fill in `Up`/`Down`; the file's `init()` registers it automatically, so
+there is no list to hand-edit. See
+[Database § Migrations](database.md#migrations).
+
+Every `make:` command shares the same normalization and **refuses to
+overwrite** an existing file.
 
 ## How the DB commands boot
 
-`db:migrate` and `db:seed` perform a *partial* application bootstrap —
+The `db:*` commands (`db:migrate`, `db:rollback`, `db:automigrate`,
+`db:seed`) perform a *partial* application bootstrap —
 `LoadEnv → BuildMySQLDSN → vento.New() → ConnectDB` (the `openDB` helper) —
 then operate on `Engine.DB` directly. No templates, no routes, no HTTP
 server. Missing DB config or an unreachable MySQL aborts with a clear
@@ -84,6 +132,7 @@ steps like this is a property of the boot being plain function calls — see
   the database.
 - **New seeder:** append a `seeder{name, run}` entry to the `seeders`
   slice; slice order is execution order.
-- **New scaffold:** follow the `make:controller` pattern — a Go string
-  template constant, `fmt.Sprintf` substitution, and an `os.Stat` guard
-  before `os.WriteFile` so existing files are never clobbered.
+- **New scaffold:** follow the `make:*` pattern — a Go string-template
+  constant, `fmt.Sprintf` substitution, and a call to the shared
+  `writeScaffold` helper, which creates the parent directory and refuses to
+  clobber an existing file.

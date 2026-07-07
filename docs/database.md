@@ -41,9 +41,9 @@ soft-delete `DeletedAt`. Nothing in Vento requires the embed — it's a GORM
 convention — but the demo model uses it and the seeder relies on `ID`
 existing.
 
-### The migration registry
+### The model registry
 
-`models.All()` is the single source of truth for what gets migrated:
+`models.All()` lists every model for the `db:automigrate` shortcut:
 
 ```go
 func All() []any {
@@ -53,9 +53,11 @@ func All() []any {
 }
 ```
 
-Adding a model to the application is a two-step: define the struct, append
-`&YourModel{}` here. `vento db:migrate` reads this list and nothing else —
-there is no directory scanning or struct-tag magic to trip over.
+Adding a model is a two-step: define the struct, append `&YourModel{}` here.
+`vento db:automigrate` reads this list and nothing else — there is no
+directory scanning or struct-tag magic to trip over. For ordered, reversible
+schema history use a migration instead (see [Migrations](#migrations));
+`db:automigrate` is the quick, untracked path for prototyping.
 
 ## Querying from a controller
 
@@ -98,19 +100,63 @@ Two conventions Vento's own controllers follow — keep them:
 
 ## Migrations
 
-There is no migration-file system — Vento uses GORM's `AutoMigrate`, driven
-entirely by `models.All()`:
+Vento has a versioned migration registry in the `migrations/` package
+(mirroring Laravel's `database/migrations`). A migration is a
+`vento.Migration` — a sortable `ID`, an `Up`, and an optional `Down`:
 
-```bash
-./bin/vento db:migrate
+```go
+// migrations/20260101_000001_create_users_table.go
+func init() {
+    register(vento.Migration{
+        ID:   "20260101_000001_create_users_table",
+        Up:   func(tx *gorm.DB) error { return tx.AutoMigrate(&models.User{}) },
+        Down: func(tx *gorm.DB) error { return tx.Migrator().DropTable(&models.User{}) },
+    })
+}
 ```
 
-`AutoMigrate` is **additive and idempotent**: it creates missing tables,
-columns, and indexes, and never drops or renames anything. That fits a
-starter/small-project framework; it is *not* a versioned migration history.
-If your project grows into needing reversible, ordered migrations (column
-renames, data backfills), pair the registry with a dedicated tool
-(golang-migrate, atlas, goose) and keep `AutoMigrate` for development only.
+Each migration file **registers itself** in an `init()`, so adding a file is
+all it takes — there is no central list to hand-edit. `migrations.All()`
+returns them sorted by `ID`, and because IDs are timestamp-prefixed, sorted
+order is apply order.
+
+Scaffold a new one (the timestamp prefix is generated for you):
+
+```bash
+./bin/vento make:migration create_posts_table
+# -> migrations/20260707_142530_create_posts_table.go
+```
+
+Fill in `Up`/`Down`, then:
+
+```bash
+./bin/vento db:migrate     # apply every pending migration, in order
+./bin/vento db:rollback    # revert the most recently applied migration
+```
+
+`db:migrate` records each applied `ID` in a **`schema_migrations`** tracking
+table and skips anything already recorded, so it is safe to re-run and only
+ever runs new migrations. `db:rollback` runs the last migration's `Down` and
+deletes its tracking row (it refuses a migration whose `Down` is `nil`).
+
+> **MySQL caveat.** DDL statements (`CREATE TABLE`, `ALTER TABLE`, …) trigger
+> an implicit commit in MySQL, so the transaction wrapped around each
+> migration cannot undo a half-finished schema change. Keep each migration a
+> single coherent step, and make multi-statement changes re-runnable.
+
+### `db:automigrate` — the prototyping shortcut
+
+For rapid iteration, `db:automigrate` runs GORM `AutoMigrate` over
+`models.All()` directly — additive, idempotent, and **untracked** (no
+`schema_migrations` row):
+
+```bash
+./bin/vento db:automigrate
+```
+
+It creates missing tables, columns, and indexes and never drops or renames
+anything. Reach for it while a model's shape is still in flux; once the
+schema needs ordered, reversible history, move to migrations.
 
 ## Seeders
 
@@ -149,7 +195,8 @@ dependency data (e.g. users) before data that references it.
 
 ## Why the CLI connects independently
 
-`db:migrate` and `db:seed` don't boot the web application — they run
+The `db:*` commands (`db:migrate`, `db:rollback`, `db:automigrate`,
+`db:seed`) don't boot the web application — they run
 `LoadEnv → BuildMySQLDSN → New → ConnectDB` themselves (the `openDB` helper
 in `cmd/vento/main.go`) and operate directly on the pool. Same code path as
 the app's boot, minus templates, routes, and the server. See

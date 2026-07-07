@@ -12,14 +12,22 @@ vento-app/
 │   ├── context.go         # Context: the object every handler receives
 │   ├── middlewares.go     # Logger, Recovery
 │   ├── security.go        # SecurityHeaders, BodyLimit, RateLimiter, CSRFProtection
+│   ├── migrator.go        # Migration type + registry runner (RunMigrations, rollback, schema_migrations)
 │   ├── static.go          # Engine.Static: static file mounts
 │   └── config.go          # .env loading, MySQL DSN assembly
 │
 ├── controllers/           # Request handlers (mirrors Laravel's app/Http/Controllers)
 │   └── home_controller.go # Index — the welcome page (add your own handlers here)
 │
-├── models/                # GORM data models + the migration registry
-│   └── user.go            # Example User model + models.All() (what db:migrate migrates)
+├── models/                # GORM data models + the model registry
+│   └── user.go            # Example User model + models.All() (what db:automigrate syncs)
+│
+├── middleware/            # Your own middleware (mirrors Laravel's app/Http/Middleware)
+│   └── request_id.go      # RequestID — example; wired into routes/web.go's global chain
+│
+├── migrations/            # Ordered, reversible schema changes (mirrors database/migrations)
+│   ├── migrations.go      # register() + All() — the self-registering migration registry
+│   └── 20260101_000001_create_users_table.go  # Example migration (make:migration scaffolds more)
 │
 ├── routes/                # Endpoint declarations (mirrors Laravel's routes/web.php)
 │   └── web.go             # RegisterRoutes: global middlewares + every route
@@ -28,7 +36,7 @@ vento-app/
 │   ├── layouts/base.html  # Shared document shell: <head>, {{template "content" .}}
 │   └── index.html         # The welcome page ({{define "content"}})
 │
-├── cmd/vento/main.go       # The `vento` CLI: run, db:migrate, db:seed, make:controller
+├── cmd/vento/main.go       # The `vento` CLI: run, db:migrate/rollback/automigrate/seed, make:*
 │
 ├── assets/                # Front-end SOURCE (not served)
 │   ├── logo.svg, icon.svg # Brand assets (README, favicon)
@@ -51,26 +59,34 @@ vento-app/
 The split is strict and worth internalizing:
 
 - **`vento/` is the framework.** It imports only the standard library and
-  GORM — never `controllers`, `models`, or `routes`. It has no idea what
-  application is built on it. Everything under `vento/` is documented in
-  [Architecture](architecture.md).
+  GORM — never `controllers`, `models`, `middleware`, `migrations`, or
+  `routes`. It has no idea what application is built on it. Everything under
+  `vento/` is documented in [Architecture](architecture.md).
 - **Everything else is the application** — a deliberately small demo whose
   every route exists to exercise one framework feature
   ([the route map](routing.md#the-demo-route-map)). Building your own app
-  means replacing the demo controllers/models/views, not touching `vento/`.
+  means replacing the demo controllers/models/views/middleware/migrations,
+  not touching `vento/`.
 
 ## The import graph is deliberately one-way
 
 ```
-main.go / cmd/vento  →  routes  →  controllers  →  models
-                    ↘         ↘                ↗
-                      ───────→  vento  ←─────────
+main.go ─┐
+cmd/vento┴─▶ routes ─▶ controllers ─▶ models ◀─ migrations
+                └────▶ middleware
+
+  routes, controllers, middleware, migrations, models  ── all import ──▶  vento
+  vento imports nothing from the application
 ```
 
-- `routes` imports `controllers` and `vento` — never `main`. This is what
-  prevents a `routes ↔ main` import cycle.
+- `routes` imports `controllers`, `middleware`, and `vento` — never `main`.
+  This is what prevents a `routes ↔ main` import cycle.
 - `controllers` imports `models` and `vento` — never `routes`. A controller
   doesn't know what URL it's mounted at.
+- `middleware` imports only `vento` — the same one-way rule as controllers,
+  so your own middleware never reaches back into routes or controllers.
+- `migrations` imports `vento` and `models` (to reference the structs a
+  migration creates); only the CLI drives it, never `main`/`routes`.
 - `models` imports only GORM.
 - `vento` imports nothing from the application.
 
@@ -108,17 +124,25 @@ Everything a fresh clone regenerates is gitignored:
 
 ## Adding a new feature end to end
 
-A typical feature ("posts") touches four places, in dependency order:
+A typical feature ("posts") is assembled entirely from scaffolds — every
+step stays in the application layer, never `vento/` or `main.go`:
 
-1. **Model** — add `models/post.go`; append `&Post{}` to `models.All()`.
-2. **Controller** — `./bin/vento make:controller Post` scaffolds
+1. **Model** — `./bin/vento make:model Post` scaffolds `models/post.go`; add
+   your fields, then append `&Post{}` to `models.All()`.
+2. **Migration** — `./bin/vento make:migration create_posts_table` scaffolds
+   a timestamped, self-registering file under `migrations/`; fill in `Up`
+   (e.g. `tx.AutoMigrate(&models.Post{})`) and `Down`.
+3. **Controller** — `./bin/vento make:controller Post` scaffolds
    `controllers/post_controller.go` with `PostIndex`/`PostShow`/`PostStore`
    stubs.
-3. **Routes** — wire `app.GET("/posts", controllers.PostIndex)` etc. in
-   `routes/web.go`.
-4. **Views** (if it renders HTML) — add `views/posts/index.html` with a
+4. **Middleware** (only if the feature needs its own) — `./bin/vento
+   make:middleware RequirePostOwner` scaffolds
+   `middleware/require_post_owner.go`.
+5. **Routes** — wire `app.GET("/posts", controllers.PostIndex)` (plus any
+   per-route middleware) in `routes/web.go`.
+6. **Views** (if it renders HTML) — add `views/posts/index.html` with a
    `{{define "content"}}` block; render it with `c.View("posts/index", data)`.
 
-Then `./bin/vento db:migrate` picks up the new model, and a restart picks up
-the new template. Note the order mirrors the import graph — you build from
-the model outward, and no step ever requires editing `vento/` or `main.go`.
+Then `./bin/vento db:migrate` applies the new migration and a restart picks
+up the new template. The order mirrors the import graph — you build from the
+model outward, and no step ever requires editing `vento/` or `main.go`.

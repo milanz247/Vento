@@ -14,7 +14,7 @@ enough to read end to end in an afternoon.
 That last point is the whole design goal: **Vento is meant to be understood,
 not just used.** Every guide below explains not only *how* to use a feature
 but *how it is built* and *why it was built that way*, with pointers into the
-actual source (everything lives in the seven files under `vento/`).
+actual source (everything lives in the eight files under `vento/`).
 
 ## How to read these docs
 
