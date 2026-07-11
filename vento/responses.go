@@ -87,9 +87,17 @@ func (c *Context) InternalError(msg string) { c.Abort(http.StatusInternalServerE
 //
 // A ValidationErrors (as returned by Bind/Validate - see BindOrAbort, which
 // calls this automatically) is rendered as {"errors": ["...", "..."]} -
-// one entry per failed rule, so a client can display every problem at once
-// instead of just the first. Any other error renders as the usual
-// {"error": "..."} via Abort.
+// one entry per failed rule. Those messages are safe to expose as-is (they
+// name only the field and rule, e.g. "Email is required" - see
+// vento/validate.go), so a client can display every problem at once
+// instead of just the first.
+//
+// Any other error is logged server-side with its full detail via Log, and
+// rendered to the client as a generic {"error": "..."} - the error's own
+// text (err.Error()) is deliberately not sent to the client: for a decode
+// failure (see BindJSON), that text embeds Go-internal detail (struct
+// field names, package-qualified wrapping) that's not a client's business
+// and shouldn't be relied on by one either.
 func (c *Context) AbortWithError(statusCode int, err error) {
 	var verrs ValidationErrors
 	if errors.As(err, &verrs) {
@@ -97,5 +105,6 @@ func (c *Context) AbortWithError(statusCode int, err error) {
 		c.JSON(statusCode, map[string]any{"errors": []string(verrs)})
 		return
 	}
-	c.Abort(statusCode, err.Error())
+	Log.Error("request rejected", "status", statusCode, "error", err.Error())
+	c.Abort(statusCode, "the request could not be processed")
 }

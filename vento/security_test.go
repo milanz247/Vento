@@ -87,6 +87,44 @@ func TestCSRFExemptPrefixBypassesCheck(t *testing.T) {
 	}
 }
 
+// TestCSRFExemptPrefixDoesNotMatchUnrelatedPath guards against a real bug
+// this suite caught once: exempting "/api" via a plain strings.HasPrefix
+// also silently exempted "/apikeys" and anything else that merely starts
+// with the same characters, since "/apikeys" does start with "/api". A
+// path only counts as under an exempt prefix if it equals the prefix
+// exactly or continues with a "/" - a segment boundary, not just a string
+// match.
+func TestCSRFExemptPrefixDoesNotMatchUnrelatedPath(t *testing.T) {
+	cases := []struct {
+		path      string
+		wantAllow bool
+	}{
+		{"/api", true},         // exact match
+		{"/api/users", true},   // real sub-path
+		{"/apikeys", false},    // shares a string prefix, not a path segment
+		{"/apiextra/x", false}, // same
+		{"/api-admin", false},  // same
+	}
+
+	for _, tc := range cases {
+		rec := httptest.NewRecorder()
+		req := httptest.NewRequest(http.MethodPost, tc.path, nil)
+
+		handlerRan := false
+		c := runChain(rec, req, []HandlerFunc{CSRFProtection("/api"), func(c *Context) {
+			handlerRan = true
+			c.String(http.StatusOK, "ok")
+		}})
+
+		if tc.wantAllow && (!handlerRan || c.StatusCode != http.StatusOK) {
+			t.Errorf("path %q: expected CSRF to be bypassed (real sub-path of /api), status=%d", tc.path, c.StatusCode)
+		}
+		if !tc.wantAllow && c.StatusCode != http.StatusForbidden {
+			t.Errorf("path %q: expected CSRF to still apply (not actually under /api), status=%d", tc.path, c.StatusCode)
+		}
+	}
+}
+
 func TestCSRFCookieSecureFlagRespectsTrustProxyHeaders(t *testing.T) {
 	orig := TrustProxyHeaders
 	defer func() { TrustProxyHeaders = orig }()

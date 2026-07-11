@@ -11,9 +11,17 @@ package vento
 //   - SecurityHeaders stamps hardening headers before any body is written.
 //   - BodyLimit (1 MiB) caps request bodies before any handler reads them.
 //   - RateLimiter (10 req/s, burst 20, per IP) rejects floods early.
-//   - CSRFProtection guards browser form posts; "/api" is exempted since
-//     API routes are expected to be token-authenticated, not
-//     cookie/session-authenticated.
+//   - CSRFProtection guards every cookie/session-authenticated route,
+//     which by default is everything: only "/api/auth" is exempted, since
+//     those are the two or three routes (register/login) that run before a
+//     session exists at all, so there's nothing yet for CSRF to protect.
+//     Nothing else is exempt by default - a session-authenticated route
+//     (see RequireAuth) left exempt has no CSRF protection at all, which
+//     is exactly the mistake this default used to make by blanket-exempting
+//     all of "/api" on the assumption every API route uses token auth.
+//     A genuinely token-authenticated route (bearer/API-key, never reads a
+//     cookie) is fine to exempt explicitly, per-app, in main.go - CSRF only
+//     matters for requests a browser attaches credentials to automatically.
 //
 // An application adds its own middleware (e.g. request-ID tracing, auth) on
 // top via app.Use(...) in main.go, before mapping its route tables, rather
@@ -26,6 +34,6 @@ func DefaultMiddleware() []HandlerFunc {
 		SecurityHeaders,
 		BodyLimit(1 << 20),
 		RateLimiter(10, 20),
-		CSRFProtection("/api"),
+		CSRFProtection("/api/auth"),
 	}
 }

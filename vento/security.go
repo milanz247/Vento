@@ -155,7 +155,16 @@ const (
 //
 // exemptPrefixes lists path prefixes excluded from validation - typically
 // token-authenticated JSON APIs, which are not CSRF-vulnerable because
-// browsers never attach their credentials automatically.
+// browsers never attach their credentials automatically. Matching is
+// boundary-aware (see pathHasPrefix): exempting "/api" does not also
+// exempt "/apikeys" or any other path that merely starts with the same
+// characters.
+//
+// Exempting a prefix is a claim that every route under it authenticates
+// some way other than a browser-attached cookie - a session-authenticated
+// route (see RequireAuth) under an exempted prefix has no CSRF protection
+// at all. Don't exempt a prefix that mixes token-authenticated and
+// session-authenticated routes.
 func CSRFProtection(exemptPrefixes ...string) HandlerFunc {
 	return func(c *Context) {
 		switch c.Request.Method {
@@ -184,11 +193,9 @@ func CSRFProtection(exemptPrefixes ...string) HandlerFunc {
 			return
 		}
 
-		for _, prefix := range exemptPrefixes {
-			if strings.HasPrefix(c.Request.URL.Path, prefix) {
-				c.Next()
-				return
-			}
+		if pathHasPrefix(c.Request.URL.Path, exemptPrefixes) {
+			c.Next()
+			return
 		}
 
 		cookie, err := c.Request.Cookie(CSRFCookieName)
@@ -208,4 +215,19 @@ func CSRFProtection(exemptPrefixes ...string) HandlerFunc {
 		}
 		c.Next()
 	}
+}
+
+// pathHasPrefix reports whether path is exactly one of prefixes, or falls
+// under one of them as a path segment - i.e. prefix "/api" matches
+// "/api" and "/api/users", but not "/apikeys". A plain strings.HasPrefix
+// would match "/apikeys" too, silently exempting an unrelated route table
+// from CSRF protection the moment its name happens to share "/api" as a
+// string prefix.
+func pathHasPrefix(path string, prefixes []string) bool {
+	for _, prefix := range prefixes {
+		if path == prefix || strings.HasPrefix(path, prefix+"/") {
+			return true
+		}
+	}
+	return false
 }

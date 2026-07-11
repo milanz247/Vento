@@ -181,4 +181,10 @@ func TestBindOrAbortWritesPlainErrorOnMalformedBody(t *testing.T) {
 	if err := json.Unmarshal(rec.Body.Bytes(), &body2); err != nil || body2["error"] == "" {
 		t.Fatalf("expected a single {\"error\": \"...\"} body for a non-validation error, got %q", rec.Body.String())
 	}
+	// The client-facing message must not leak Go-internal detail (struct
+	// field names, the "vento: decoding JSON body: ..." wrapping BindJSON
+	// adds) - that's for the server log, not the response body.
+	if strings.Contains(body2["error"], "vento:") || strings.Contains(body2["error"], "loginForm") {
+		t.Fatalf("expected a generic client-facing message, got internal detail: %q", body2["error"])
+	}
 }

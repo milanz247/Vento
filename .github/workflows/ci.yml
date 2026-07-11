@@ -1,0 +1,54 @@
+name: CI
+
+# Runs on every push and pull request: build, vet, format check, the full
+# test suite (race detector on), and a known-vulnerability scan. This is
+# the automated gate the project didn't have before - previously every one
+# of these checks (including the two real bugs and the security findings
+# that led to this workflow) had to be run by hand.
+#
+# No MySQL service container is needed: every test in this repo runs
+# against an in-memory sqlite database (see vento/vtest, and each
+# package's own newTestDB helper) specifically so CI stays fast and
+# hermetic - MySQL is only the runtime database, never a test dependency.
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    name: build, vet, test, vulncheck
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: true
+
+      - name: go build
+        run: go build ./...
+
+      - name: go vet
+        run: go vet ./...
+
+      - name: gofmt check
+        run: |
+          unformatted=$(gofmt -l .)
+          if [ -n "$unformatted" ]; then
+            echo "the following files are not gofmt-formatted:"
+            echo "$unformatted"
+            exit 1
+          fi
+
+      - name: go test (race detector on)
+        run: go test ./... -race
+
+      - name: govulncheck
+        run: |
+          go install golang.org/x/vuln/cmd/govulncheck@latest
+          govulncheck ./...
