@@ -6,6 +6,7 @@ import (
 	"reflect"
 	"strconv"
 	"strings"
+	"sync"
 )
 
 // ValidationErrors collects every rule that failed, so a handler can report
@@ -14,6 +15,43 @@ type ValidationErrors []string
 
 func (e ValidationErrors) Error() string {
 	return strings.Join(e, "; ")
+}
+
+// validateField is one field's pre-resolved validation metadata: its index
+// and the `validate` tag split into individual rules. Splitting the tag is
+// pure reflect.Type work with the same result for every value of a given
+// struct type, so validateFieldsFor caches it instead of redoing it on
+// every call.
+type validateField struct {
+	index int
+	name  string
+	rules []string
+}
+
+var validateFieldCache sync.Map // reflect.Type -> []validateField
+
+func validateFieldsFor(rt reflect.Type) []validateField {
+	if cached, ok := validateFieldCache.Load(rt); ok {
+		return cached.([]validateField)
+	}
+
+	fields := make([]validateField, 0, rt.NumField())
+	for i := 0; i < rt.NumField(); i++ {
+		field := rt.Field(i)
+		tag := field.Tag.Get("validate")
+		if tag == "" || !field.IsExported() {
+			continue
+		}
+		fields = append(fields, validateField{
+			index: i,
+			name:  field.Name,
+			rules: strings.Split(tag, ","),
+		})
+	}
+
+	fields = fields[:len(fields):len(fields)] // trim capacity before sharing
+	actual, _ := validateFieldCache.LoadOrStore(rt, fields)
+	return actual.([]validateField)
 }
 
 // Validate checks v's fields against their `validate` struct tag - a
@@ -36,17 +74,11 @@ func Validate(v any) error {
 	if rv.Kind() != reflect.Struct {
 		return fmt.Errorf("vento: Validate target must be a struct or pointer to one")
 	}
-	rt := rv.Type()
 
 	var errs ValidationErrors
-	for i := 0; i < rt.NumField(); i++ {
-		field := rt.Field(i)
-		tag := field.Tag.Get("validate")
-		if tag == "" || !field.IsExported() {
-			continue
-		}
-		for rule := range strings.SplitSeq(tag, ",") {
-			if msg := checkRule(field.Name, rv.Field(i), rule); msg != "" {
+	for _, f := range validateFieldsFor(rv.Type()) {
+		for _, rule := range f.rules {
+			if msg := checkRule(f.name, rv.Field(f.index), rule); msg != "" {
 				errs = append(errs, msg)
 			}
 		}

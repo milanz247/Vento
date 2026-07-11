@@ -149,7 +149,7 @@ func writeSessionCookie(w http.ResponseWriter, r *http.Request, s *Session, key 
 		Path:     "/",
 		HttpOnly: true,
 		SameSite: http.SameSiteLaxMode,
-		Secure:   r.TLS != nil,
+		Secure:   isSecure(r),
 	})
 }
 

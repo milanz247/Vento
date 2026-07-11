@@ -4,13 +4,23 @@
 package vento
 
 import (
+	"context"
 	"encoding/json"
 	"html/template"
+	"log"
+	"maps"
 	"net/http"
 	"strings"
+	"sync"
 
 	"gorm.io/gorm"
 )
+
+// warnNoSessionsOnce ensures the c.Session()-without-Sessions-middleware
+// warning (see Context.Session) is logged at most once per process, so a
+// misconfigured app gets a loud signal at startup instead of a silent
+// no-op - without flooding the log on every subsequent request.
+var warnNoSessionsOnce sync.Once
 
 // H is a shorthand for the map type view data is normally passed in, e.g.
 // c.View("index", vento.H{"Message": "hi"}). It's just a named
@@ -63,9 +73,15 @@ func (c *Context) Reset(w http.ResponseWriter, r *http.Request) {
 // by a signed cookie, loaded by the Sessions middleware if it's installed.
 // Without Sessions installed, this still returns a working, empty Session
 // so Get/Set never panic, but it won't persist anywhere since nothing
-// signs or writes the cookie. See Sessions for how to wire it in.
+// signs or writes the cookie - a misconfiguration (Sessions was never
+// wired in via app.Use, typically because APP_KEY is unset) that's easy to
+// ship unnoticed, so the first such call logs a loud warning instead of
+// failing silently. See Sessions for how to wire it in.
 func (c *Context) Session() *Session {
 	if c.session == nil {
+		warnNoSessionsOnce.Do(func() {
+			log.Println("vento: WARNING: c.Session() was called but vento.Sessions middleware is not installed (or APP_KEY is unset) - session data will NOT persist across requests. Wire it in with app.Use(vento.Sessions(env[\"APP_KEY\"])) before mapping routes.")
+		})
 		c.session = &Session{}
 	}
 	return c.session
@@ -150,10 +166,14 @@ func (c *Context) Param(key string) string {
 	return c.params[key]
 }
 
-// DB returns the Engine's GORM connection pool, letting handlers write
-// queries directly, e.g. c.DB().Find(&users).
+// DB returns the Engine's GORM connection pool bound to this request's
+// context, letting handlers write queries directly, e.g.
+// c.DB().Find(&users). Binding the request context means a query is
+// canceled the instant the client disconnects (or the request's deadline,
+// if any, expires) instead of running to completion against an abandoned
+// connection.
 func (c *Context) DB() *gorm.DB {
-	return c.db
+	return c.db.WithContext(c.Request.Context())
 }
 
 // View renders the named page (e.g. "index" for views/index.html) with
@@ -237,6 +257,49 @@ func (c *Context) Partial(name string, data ...any) {
 
 	if err := view.tmpl.ExecuteTemplate(c.Writer, "content", c.viewPayload(data...)); err != nil {
 		http.Error(c.Writer, err.Error(), http.StatusInternalServerError)
+	}
+}
+
+// DetachedContext is a read-only snapshot of a request, safe to retain and
+// read from a goroutine that outlives the handler that created it - see
+// Context.Detach.
+type DetachedContext struct {
+	Method string
+	Path   string
+	Params map[string]string
+
+	ctx context.Context
+}
+
+// Context returns a context.Context derived from the original request's -
+// carrying the same values, but with cancellation detached (see Detach), so
+// code using it for a background operation isn't canceled the instant the
+// original HTTP response is written.
+func (d *DetachedContext) Context() context.Context { return d.ctx }
+
+// Detach returns a read-only snapshot of c safe to use from a goroutine
+// that outlives the current handler - e.g. to send a webhook or write an
+// audit log entry after the response has already been sent.
+//
+// The live *Context must never be retained past the handler's return: it's
+// recycled through the Engine's sync.Pool the instant the handler chain
+// finishes (see Engine.dispatch), so a goroutine holding onto c, c.Request,
+// or c.Writer risks a data race against whichever unrelated request reuses
+// that pooled instance next. Detach copies out the handful of values a
+// background task typically needs instead:
+//
+//	bg := c.Detach()
+//	go func() {
+//	    sendWebhook(bg.Context(), bg.Path, bg.Params)
+//	}()
+func (c *Context) Detach() *DetachedContext {
+	params := make(map[string]string, len(c.params))
+	maps.Copy(params, c.params)
+	return &DetachedContext{
+		Method: c.Request.Method,
+		Path:   c.Request.URL.Path,
+		Params: params,
+		ctx:    context.WithoutCancel(c.Request.Context()),
 	}
 }
 

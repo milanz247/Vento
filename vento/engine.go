@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"html/template"
 	"io/fs"
+	"net"
 	"net/http"
 	"os"
 	"os/signal"
@@ -14,6 +15,7 @@ import (
 	"syscall"
 	"time"
 
+	"golang.org/x/net/netutil"
 	"gorm.io/driver/mysql"
 	"gorm.io/gorm"
 )
@@ -103,14 +105,51 @@ func (e *Engine) DELETE(path string, handler HandlerFunc, middlewares ...Handler
 // ConnectDB opens a GORM connection pool against MySQL using dsn and
 // stores it on Engine.DB for every Context to reach via c.DB(). MySQL is
 // Vento's sole database provider; a failure here should abort startup.
+//
+// A container-orchestrated deployment commonly starts the app and its
+// database at the same time, so the database may not yet be accepting
+// connections on the app's first attempt. ConnectDB retries with capped
+// exponential backoff (DBConnectRetries attempts, DBConnectBackoff *
+// 2^attempt between them, capped at 30s) before giving up, instead of
+// failing outright on that ordinary startup race.
 func (e *Engine) ConnectDB(dsn string) error {
-	db, err := gorm.Open(mysql.Open(dsn), &gorm.Config{})
-	if err != nil {
-		return err
+	var db *gorm.DB
+	var err error
+
+	for attempt := 0; attempt <= DBConnectRetries; attempt++ {
+		db, err = gorm.Open(mysql.Open(dsn), &gorm.Config{})
+		if err == nil {
+			if sqlDB, pingErr := db.DB(); pingErr == nil {
+				err = sqlDB.Ping()
+			}
+		}
+		if err == nil {
+			e.DB = db
+			return nil
+		}
+
+		if attempt == DBConnectRetries {
+			break
+		}
+		wait := min(DBConnectBackoff*time.Duration(1<<attempt), 30*time.Second)
+		Log.Warn("vento: database connection attempt failed, retrying",
+			"attempt", attempt+1, "max_attempts", DBConnectRetries+1, "error", err.Error(), "retry_in", wait.String())
+		time.Sleep(wait)
 	}
-	e.DB = db
-	return nil
+	return err
 }
+
+// DBConnectRetries is how many additional times ConnectDB retries a failed
+// connection attempt (so 5 means 6 attempts total) before giving up.
+// DBConnectBackoff is the base delay before the first retry, doubling each
+// attempt up to a 30s cap. Both are package-level vars, in the same spirit
+// as ShutdownTimeout - override before calling ConnectDB if the defaults
+// don't suit a deployment (e.g. set DBConnectRetries to 0 to fail fast in
+// tests).
+var (
+	DBConnectRetries = 5
+	DBConnectBackoff = 500 * time.Millisecond
+)
 
 // LoadHTMLGlob walks the directory tree rooted at the portion of pattern
 // before its first wildcard and pre-stitches every page template into the
@@ -261,9 +300,21 @@ func (e *Engine) dispatch(w http.ResponseWriter, r *http.Request, handlers []Han
 // traffic; an application needing custom ones (e.g. long-polling) can
 // build its own http.Server and pass the Engine as Handler, since Engine
 // implements http.Handler directly.
+//
+// The listener is additionally capped at MaxConnections concurrently
+// accepted connections (via netutil.LimitListener): RateLimiter only
+// throttles requests on connections that have already been accepted, so
+// without this cap a flood of connections held open below the per-IP
+// request rate (e.g. many slow/idle sockets) could exhaust file
+// descriptors before a single request is ever routed.
 func (e *Engine) Run(addr string) error {
+	ln, err := net.Listen("tcp", addr)
+	if err != nil {
+		return err
+	}
+	ln = netutil.LimitListener(ln, MaxConnections)
+
 	srv := &http.Server{
-		Addr:              addr,
 		Handler:           e,
 		ReadHeaderTimeout: 5 * time.Second,
 		ReadTimeout:       30 * time.Second,
@@ -273,8 +324,8 @@ func (e *Engine) Run(addr string) error {
 
 	serveErr := make(chan error, 1)
 	go func() {
-		fmt.Printf("vento: listening on %s\n", addr)
-		if err := srv.ListenAndServe(); err != nil && err != http.ErrServerClosed {
+		Log.Info("vento: listening", "addr", addr, "max_connections", MaxConnections)
+		if err := srv.Serve(ln); err != nil && err != http.ErrServerClosed {
 			serveErr <- err
 			return
 		}
@@ -289,13 +340,13 @@ func (e *Engine) Run(addr string) error {
 	case err := <-serveErr:
 		return err
 	case <-stop:
-		fmt.Println("vento: shutting down (waiting up to " + ShutdownTimeout.String() + " for in-flight requests)...")
+		Log.Info("vento: shutting down, waiting for in-flight requests", "timeout", ShutdownTimeout.String())
 		ctx, cancel := context.WithTimeout(context.Background(), ShutdownTimeout)
 		defer cancel()
 		if err := srv.Shutdown(ctx); err != nil {
 			return err
 		}
-		fmt.Println("vento: shutdown complete")
+		Log.Info("vento: shutdown complete")
 		return nil
 	}
 }
@@ -306,3 +357,10 @@ func (e *Engine) Run(addr string) error {
 // (app.Run(":8080")) - override it before calling Run if 10s doesn't suit
 // a deployment (e.g. long-running uploads).
 var ShutdownTimeout = 10 * time.Second
+
+// MaxConnections caps how many TCP connections Run's listener accepts
+// concurrently; connections beyond the cap queue at the OS level until one
+// frees up, rather than being handed to the server. Override before
+// calling Run if the default doesn't suit a deployment's expected
+// concurrency.
+var MaxConnections = 10000

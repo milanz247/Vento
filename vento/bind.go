@@ -6,6 +6,7 @@ import (
 	"reflect"
 	"strconv"
 	"strings"
+	"sync"
 )
 
 // Bind decodes the request body into v, then runs Validate against v's
@@ -47,6 +48,42 @@ func (c *Context) BindJSON(v any) error {
 	return nil
 }
 
+// formField is one exported field's pre-resolved bind metadata: its index
+// (for reflect.Value.Field) and the form key it reads from (its `form` tag,
+// or its Go name when untagged). Computing this - iterating fields,
+// checking IsExported, reading and parsing tags - is pure reflect.Type
+// work with the same result for every value of a given struct type, so
+// formFieldsFor caches it instead of redoing it on every request.
+type formField struct {
+	index int
+	name  string
+}
+
+var formFieldCache sync.Map // reflect.Type -> []formField
+
+func formFieldsFor(rt reflect.Type) []formField {
+	if cached, ok := formFieldCache.Load(rt); ok {
+		return cached.([]formField)
+	}
+
+	fields := make([]formField, 0, rt.NumField())
+	for i := 0; i < rt.NumField(); i++ {
+		field := rt.Field(i)
+		if !field.IsExported() {
+			continue
+		}
+		name := field.Tag.Get("form")
+		if name == "" {
+			name = field.Name
+		}
+		fields = append(fields, formField{index: i, name: name})
+	}
+
+	fields = fields[:len(fields):len(fields)] // trim capacity before sharing
+	actual, _ := formFieldCache.LoadOrStore(rt, fields)
+	return actual.([]formField)
+}
+
 // bindForm reads parsed POST/PUT form values into v's exported fields by
 // name - a `form:"name"` tag if present, otherwise the field's Go name -
 // converting each value to the field's type. Only string, bool, and the
@@ -61,23 +98,14 @@ func (c *Context) bindForm(v any) error {
 		return fmt.Errorf("vento: Bind target must be a pointer to a struct")
 	}
 	rv = rv.Elem()
-	rt := rv.Type()
 
-	for i := 0; i < rt.NumField(); i++ {
-		field := rt.Field(i)
-		if !field.IsExported() {
-			continue
-		}
-		name := field.Tag.Get("form")
-		if name == "" {
-			name = field.Name
-		}
-		raw := c.Request.FormValue(name)
+	for _, f := range formFieldsFor(rv.Type()) {
+		raw := c.Request.FormValue(f.name)
 		if raw == "" {
 			continue
 		}
-		if err := setField(rv.Field(i), raw); err != nil {
-			return fmt.Errorf("vento: field %s: %w", field.Name, err)
+		if err := setField(rv.Field(f.index), raw); err != nil {
+			return fmt.Errorf("vento: field %s: %w", f.name, err)
 		}
 	}
 	return nil

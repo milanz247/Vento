@@ -1,6 +1,7 @@
 package vento
 
 import (
+	"io/fs"
 	"net/http"
 	"strconv"
 	"strings"
@@ -35,7 +36,7 @@ var StaticMaxAge = 3600
 // SecurityHeaders, and any other global middleware.
 func (e *Engine) Static(urlPrefix, dir string) {
 	urlPrefix = "/" + strings.Trim(urlPrefix, "/")
-	fileServer := http.StripPrefix(urlPrefix, http.FileServer(http.Dir(dir)))
+	fileServer := http.StripPrefix(urlPrefix, http.FileServer(noDirListing{http.Dir(dir)}))
 	cacheControl := "public, max-age=" + strconv.Itoa(StaticMaxAge)
 
 	chain := make([]HandlerFunc, 0, len(e.middlewares)+1)
@@ -57,4 +58,30 @@ func (e *Engine) matchStatic(path string) []HandlerFunc {
 		}
 	}
 	return nil
+}
+
+// noDirListing wraps an http.FileSystem so a request for a directory with
+// no index.html 404s instead of falling back to http.FileServer's default
+// behavior of rendering an HTML listing of the directory's contents - which
+// would otherwise leak the on-disk file tree (backups, dotfiles, anything
+// accidentally placed under the mount) to any client that asks.
+type noDirListing struct {
+	fs http.FileSystem
+}
+
+func (n noDirListing) Open(name string) (http.File, error) {
+	f, err := n.fs.Open(name)
+	if err != nil {
+		return nil, err
+	}
+	if stat, statErr := f.Stat(); statErr == nil && stat.IsDir() {
+		index := strings.TrimSuffix(name, "/") + "/index.html"
+		idx, err := n.fs.Open(index)
+		if err != nil {
+			f.Close()
+			return nil, fs.ErrNotExist
+		}
+		idx.Close()
+	}
+	return f, nil
 }

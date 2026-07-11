@@ -4,13 +4,20 @@ import (
 	"crypto/rand"
 	"crypto/subtle"
 	"encoding/hex"
-	"net"
 	"net/http"
 	"strings"
 	"sync"
 	"sync/atomic"
 	"time"
 )
+
+// ContentSecurityPolicy is the Content-Security-Policy value SecurityHeaders
+// stamps onto every response. Empty (the default) omits the header entirely,
+// since a safe policy is app-specific (inline scripts, CDNs, htmx, ...) -
+// set it once at startup, before Run:
+//
+//	vento.ContentSecurityPolicy = "default-src 'self'; object-src 'none'; base-uri 'self'"
+var ContentSecurityPolicy = ""
 
 // SecurityHeaders is a built-in middleware that stamps standard hardening
 // headers onto every response before the rest of the chain runs.
@@ -19,13 +26,24 @@ import (
 // browser XSS auditor it used to enable has been removed from modern
 // browsers and was itself a vector for information leaks in older ones,
 // so explicitly disabling it is the hardened setting. XSS defense comes
-// from html/template's contextual auto-escaping instead.
+// from html/template's contextual auto-escaping instead, backstopped by
+// ContentSecurityPolicy when it's configured.
+//
+// Strict-Transport-Security is set whenever the request is considered
+// secure (see isSecure) - never on a plaintext request, since HSTS applies
+// only to the origin the browser received it from over HTTPS.
 func SecurityHeaders(c *Context) {
 	h := c.Writer.Header()
 	h.Set("X-Frame-Options", "DENY")
 	h.Set("X-XSS-Protection", "0")
 	h.Set("X-Content-Type-Options", "nosniff")
 	h.Set("Referrer-Policy", "strict-origin-when-cross-origin")
+	if ContentSecurityPolicy != "" {
+		h.Set("Content-Security-Policy", ContentSecurityPolicy)
+	}
+	if isSecure(c.Request) {
+		h.Set("Strict-Transport-Security", "max-age=63072000; includeSubDomains; preload")
+	}
 	c.Next()
 }
 
@@ -62,10 +80,11 @@ type bucket struct {
 // minute) so the map cannot grow without bound under address-spoofed
 // traffic.
 //
-// The client key is the connection's remote IP. Behind a reverse proxy,
-// rate-limit at the proxy instead, or extend this to trust
-// X-Forwarded-For only from known proxy addresses - trusting it blindly
-// would let clients evade the limiter with a forged header.
+// The client key is the connection's remote IP, unless TrustProxyHeaders is
+// enabled, in which case it's the leftmost X-Forwarded-For address (see
+// clientIP) - only turn that on behind a reverse proxy you control that
+// strips/overwrites the header from untrusted clients, since trusting it
+// blindly would let any client evade the limiter with a forged header.
 func RateLimiter(rps float64, burst float64) HandlerFunc {
 	var (
 		buckets   sync.Map // ip string -> *bucket
@@ -74,10 +93,7 @@ func RateLimiter(rps float64, burst float64) HandlerFunc {
 	lastPurge.Store(time.Now().UnixNano())
 
 	return func(c *Context) {
-		ip, _, err := net.SplitHostPort(c.Request.RemoteAddr)
-		if err != nil {
-			ip = c.Request.RemoteAddr
-		}
+		ip := clientIP(c.Request)
 
 		now := time.Now()
 
@@ -155,11 +171,11 @@ func CSRFProtection(exemptPrefixes ...string) HandlerFunc {
 					Value:    hex.EncodeToString(raw),
 					Path:     "/",
 					SameSite: http.SameSiteLaxMode,
-					// Secure whenever the request itself arrived over TLS, so
-					// an HTTPS deployment never sends the token in clear text.
-					// (Behind a TLS-terminating proxy the hop to Go is plain
-					// HTTP; set the flag at the proxy in that topology.)
-					Secure: c.Request.TLS != nil,
+					// Secure whenever the request is considered to have
+					// arrived over TLS - see isSecure: that's r.TLS != nil
+					// directly, or X-Forwarded-Proto behind a reverse proxy
+					// when TrustProxyHeaders is explicitly enabled.
+					Secure: isSecure(c.Request),
 					// Not HttpOnly by design: front-end JS must read it to
 					// echo it back in the X-CSRF-Token header.
 				})
