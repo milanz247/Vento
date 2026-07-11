@@ -4,6 +4,7 @@ import (
 	"bufio"
 	"fmt"
 	"os"
+	"strconv"
 	"strings"
 )
 
@@ -69,4 +70,39 @@ func BuildMySQLDSN(env map[string]string) (dsn string, ok bool) {
 	dsn = fmt.Sprintf("%s:%s@tcp(%s:%s)/%s?charset=utf8mb4&parseTime=True&loc=Local",
 		user, env["DB_PASSWORD"], host, port, name)
 	return dsn, true
+}
+
+// Env, EnvInt, and EnvBool read straight from the process environment -
+// Laravel's env() helper, adapted to Go: since LoadEnv already exports
+// every .env entry via os.Setenv, any code anywhere in the app can read
+// config through these without threading the map LoadEnv returns through
+// every function that needs a setting. fallback is returned when key is
+// unset or (for EnvInt/EnvBool) set to something that doesn't parse.
+//
+//	timeout := vento.EnvInt("REQUEST_TIMEOUT_SECONDS", 30)
+//	debug := vento.EnvBool("APP_DEBUG", false)
+func Env(key, fallback string) string {
+	if v := os.Getenv(key); v != "" {
+		return v
+	}
+	return fallback
+}
+
+// EnvInt reads key as an int, or fallback if it's unset or not a valid
+// integer.
+func EnvInt(key string, fallback int) int {
+	if v, err := strconv.Atoi(os.Getenv(key)); err == nil {
+		return v
+	}
+	return fallback
+}
+
+// EnvBool reads key as a bool, or fallback if it's unset or not a valid
+// boolean. Accepts the same spellings as strconv.ParseBool: "1", "t",
+// "true", "0", "f", "false" (case-insensitive), among others.
+func EnvBool(key string, fallback bool) bool {
+	if v, err := strconv.ParseBool(os.Getenv(key)); err == nil {
+		return v
+	}
+	return fallback
 }

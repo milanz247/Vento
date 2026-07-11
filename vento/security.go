@@ -1,9 +1,7 @@
 package vento
 
 import (
-	"crypto/rand"
 	"crypto/subtle"
-	"encoding/hex"
 	"net/http"
 	"strings"
 	"sync"
@@ -161,14 +159,14 @@ func CSRFProtection(exemptPrefixes ...string) HandlerFunc {
 		switch c.Request.Method {
 		case http.MethodGet, http.MethodHead, http.MethodOptions, http.MethodTrace:
 			if _, err := c.Request.Cookie(CSRFCookieName); err != nil {
-				raw := make([]byte, 32)
-				if _, err := rand.Read(raw); err != nil {
+				token := RandomString(32)
+				if token == "" {
 					c.Abort(http.StatusInternalServerError, "could not issue CSRF token")
 					return
 				}
 				http.SetCookie(c.Writer, &http.Cookie{
 					Name:     CSRFCookieName,
-					Value:    hex.EncodeToString(raw),
+					Value:    token,
 					Path:     "/",
 					SameSite: http.SameSiteLaxMode,
 					// Secure whenever the request is considered to have
