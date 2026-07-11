@@ -110,6 +110,44 @@ func TestRollbackLastRejectsIrreversibleMigration(t *testing.T) {
 	}
 }
 
+func TestStatusReportsAppliedAndPending(t *testing.T) {
+	db := newTestDB(t)
+	list := []Migration{
+		{ID: "a", Up: func(tx *gorm.DB) error { return nil }},
+		{ID: "b", Up: func(tx *gorm.DB) error { return nil }},
+	}
+	if _, err := Run(db, list[:1]); err != nil { // only apply "a"
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	status, err := Status(db, list)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if len(status) != 2 {
+		t.Fatalf("expected 2 entries, got %d", len(status))
+	}
+	if !status[0].Applied || status[0].AppliedAt.IsZero() {
+		t.Fatalf("expected %q to be applied with a timestamp, got %+v", "a", status[0])
+	}
+	if status[1].Applied {
+		t.Fatalf("expected %q to be pending, got %+v", "b", status[1])
+	}
+}
+
+func TestStatusOnFreshDatabase(t *testing.T) {
+	db := newTestDB(t)
+	list := []Migration{{ID: "a", Up: func(tx *gorm.DB) error { return nil }}}
+
+	status, err := Status(db, list)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if len(status) != 1 || status[0].Applied {
+		t.Fatalf("expected a single pending entry, got %+v", status)
+	}
+}
+
 func TestAutoMigrateModels(t *testing.T) {
 	db := newTestDB(t)
 	type widget struct {

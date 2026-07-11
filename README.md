@@ -46,8 +46,11 @@ external dependency.
   (`db:migrate` / `db:rollback`, tracked in `schema_migrations`), and
   idempotent seeders, all driven by a single `.env` file.
 - **CLI (`vento`)** — `run` (hot reload via [air](https://github.com/air-verse/air)
-  when installed), the `db:*` commands, and `make:controller` /
-  `make:model` / `make:middleware` / `make:migration` scaffolding.
+  when installed), `route:list` and `env:check` for fast local diagnostics,
+  the `db:*` commands (including `db:status` and `db:fresh`), and
+  `make:resource` (a full CRUD controller + model + test in one command) /
+  `make:controller` / `make:model` / `make:middleware` / `make:migration` /
+  `make:seeder` / `make:test` scaffolding.
 - **Tailwind CSS, built locally** — no CSS CDN at runtime.
 
 ## Getting Started
@@ -89,13 +92,19 @@ Don't want the CLI installed? Every command also works as
 
 ```
 vento-app/
-├── vento/              # The framework: Engine, Context, router, security,
-│                        # sessions, CORS, bind/validate, migrator, static
-│   └── cmd/vento/       # The `vento` CLI (run, db:*, make:*)
+├── vento/              # The framework core: Engine, Context, router, security,
+│                       # sessions, auth, bind/validate, query/pagination, static
+│   ├── config/          # .env loading, typed Env/EnvInt/EnvBool getters
+│   ├── hash/             # bcrypt password hashing + RandomString
+│   ├── migrate/          # Migration type, Run/RollbackLast/Status/AutoMigrateModels
+│   ├── support/          # Pure pagination/route-path math, generic Map/Filter
+│   ├── vtest/             # Unit-testing helpers for your own controllers
+│   └── cmd/vento/       # The `vento` CLI (run, route:list, env:check, db:*, make:*)
 ├── app/
 │   ├── controllers/    # Request handlers
 │   ├── models/         # GORM data models + model registry
-│   └── middleware/     # Your own middleware (e.g. RequestID)
+│   ├── middleware/     # Your own middleware (e.g. RequestID)
+│   └── seeders/        # Versioned, self-registering database seeders
 ├── routes/             # web.go (page routes) + api.go (/api routes)
 ├── migrations/         # Versioned, self-registering schema migrations
 ├── views/              # HTML templates (layouts + pages)

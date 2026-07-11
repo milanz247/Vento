@@ -129,3 +129,50 @@ func (r *router) getRoute(method, path string) (*node, map[string]string) {
 	}
 	return found, params
 }
+
+// RouteInfo describes one registered route: its HTTP method, full path
+// pattern (e.g. "/users/:id"), and how many handlers (global middleware +
+// group middleware + route middleware + controller) are compiled into its
+// chain - returned by Engine.Routes.
+type RouteInfo struct {
+	Method       string
+	Path         string
+	HandlerCount int
+}
+
+// walk visits every node in the subtree rooted at n, depth-first,
+// reconstructing each node's full path from the segment chain accumulated
+// along the way, and calls fn for every node that has a registered handler
+// chain (i.e. is an actual route, not just an intermediate path segment
+// like "users" in "/users/:id" when "/users" itself was never registered).
+func (n *node) walk(segments []string, fn func(path string, n *node)) {
+	if n.handlers != nil {
+		fn(routePath(segments), n)
+	}
+	for _, child := range n.children {
+		childSegments := append(append([]string{}, segments...), child.path)
+		child.walk(childSegments, fn)
+	}
+}
+
+// routePath joins segments back into a leading-slash path, e.g.
+// ["users", ":id"] -> "/users/:id"; an empty segment chain (the root path
+// itself) is "/".
+func routePath(segments []string) string {
+	if len(segments) == 0 {
+		return "/"
+	}
+	return "/" + strings.Join(segments, "/")
+}
+
+// routes returns every registered route across every method's Trie,
+// unsorted - Engine.Routes sorts the result before returning it.
+func (r *router) routes() []RouteInfo {
+	var out []RouteInfo
+	for method, root := range r.roots {
+		root.walk(nil, func(path string, n *node) {
+			out = append(out, RouteInfo{Method: method, Path: path, HandlerCount: len(n.handlers)})
+		})
+	}
+	return out
+}

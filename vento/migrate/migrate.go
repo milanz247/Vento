@@ -159,6 +159,41 @@ func appliedIDs(db *gorm.DB) (map[string]bool, error) {
 	return set, nil
 }
 
+// StatusEntry describes one migration's applied state - returned by
+// Status.
+type StatusEntry struct {
+	ID        string
+	Applied   bool
+	AppliedAt time.Time // zero if Applied is false
+}
+
+// Status reports, for every migration in list, whether it has been applied
+// and when - the introspection backing the CLI's db:status command, so a
+// developer can see what's pending without querying schema_migrations by
+// hand. The result is in list's order (registration order via
+// migrations.All, i.e. chronological by ID), not application order.
+func Status(db *gorm.DB, list []Migration) ([]StatusEntry, error) {
+	if err := ensureMigrationsTable(db); err != nil {
+		return nil, err
+	}
+
+	var rows []schemaMigration
+	if err := db.Find(&rows).Error; err != nil {
+		return nil, fmt.Errorf("migrate: reading schema_migrations: %w", err)
+	}
+	applied := make(map[string]time.Time, len(rows))
+	for _, r := range rows {
+		applied[r.ID] = r.AppliedAt
+	}
+
+	out := make([]StatusEntry, len(list))
+	for i, m := range list {
+		at, ok := applied[m.ID]
+		out[i] = StatusEntry{ID: m.ID, Applied: ok, AppliedAt: at}
+	}
+	return out, nil
+}
+
 // AutoMigrateModels runs GORM's AutoMigrate over each model, in order. It
 // backs the CLI's db:automigrate command: an additive, idempotent,
 // untracked schema sync driven straight off models.All(), handy for rapid

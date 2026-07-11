@@ -29,7 +29,9 @@
 //   - kernel.go  DefaultMiddleware - the global middleware stack New() installs automatically
 //
 // Routing:
-//   - router.go  the per-method Trie route matcher (unexported; reached only through Engine/RouterGroup)
+//   - router.go  the per-method Trie route matcher (unexported; reached
+//     through Engine/RouterGroup), plus Engine.Routes/StaticMounts - the
+//     introspection the CLI's route:list command is built on
 //   - group.go   RouterGroup - app.Group(prefix, middleware...) for shared-prefix route sets
 //
 // The request/response core:
@@ -72,10 +74,10 @@
 //     involved.
 //   - vento/hash     Make/Check (bcrypt password hashing) and RandomString -
 //     the one place crypto/rand is touched. Pure.
-//   - vento/migrate  Migration, Run, RollbackLast, AutoMigrateModels - schema
-//     management. Pure - takes a *gorm.DB directly; used by an
-//     application's migrations package and the CLI, not by request
-//     handlers.
+//   - vento/migrate  Migration, Run, RollbackLast, Status, AutoMigrateModels -
+//     schema management. Pure - takes a *gorm.DB directly; used by an
+//     application's migrations package and the CLI (db:migrate/db:rollback/
+//     db:status/db:fresh), not by request handlers.
 //   - vento/support  pagination-bounds math, route-prefix math, and generic
 //     Map/Filter - small pure helpers factored out of engine.go/group.go/
 //     query.go rather than duplicated or left unexported.

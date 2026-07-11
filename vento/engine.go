@@ -10,6 +10,7 @@ import (
 	"os"
 	"os/signal"
 	"path/filepath"
+	"sort"
 	"strings"
 	"sync"
 	"syscall"
@@ -107,6 +108,33 @@ func (e *Engine) PATCH(path string, handler HandlerFunc, middlewares ...HandlerF
 // guarded by route-specific middlewares.
 func (e *Engine) DELETE(path string, handler HandlerFunc, middlewares ...HandlerFunc) {
 	e.addRoute(http.MethodDelete, path, handler, middlewares)
+}
+
+// Routes returns every route registered on e so far, sorted by path then
+// method - the introspection the CLI's route:list command is built on, and
+// generally useful for anything that wants to know an app's HTTP surface
+// (a startup sanity check, an OpenAPI generator). Call it only after every
+// route table has been mapped (i.e. after main.go's routes.Web(app)/
+// routes.Api(app) calls) to see the complete picture.
+func (e *Engine) Routes() []RouteInfo {
+	out := e.router.routes()
+	sort.Slice(out, func(i, j int) bool {
+		if out[i].Path != out[j].Path {
+			return out[i].Path < out[j].Path
+		}
+		return out[i].Method < out[j].Method
+	})
+	return out
+}
+
+// StaticMounts returns the URL prefixes registered via Static, in
+// registration order - e.g. ["/public/"] after app.Static("/public", "./public").
+func (e *Engine) StaticMounts() []string {
+	out := make([]string, len(e.statics))
+	for i, s := range e.statics {
+		out[i] = s.prefix
+	}
+	return out
 }
 
 // ConnectDB opens a GORM connection pool against MySQL using dsn and
