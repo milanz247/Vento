@@ -3,6 +3,7 @@ package vento
 import (
 	"encoding/json"
 	"fmt"
+	"net/http"
 	"reflect"
 	"strconv"
 	"strings"
@@ -24,6 +25,10 @@ import (
 //	    c.Abort(http.StatusUnprocessableEntity, err.Error())
 //	    return
 //	}
+//
+// BindOrAbort below folds that three-line check into one - prefer it
+// unless a handler needs to react to the error itself rather than just
+// reject the request.
 func (c *Context) Bind(v any) error {
 	if ct := c.Request.Header.Get("Content-Type"); ct != "" && !strings.HasPrefix(ct, "application/json") {
 		if err := c.bindForm(v); err != nil {
@@ -33,6 +38,28 @@ func (c *Context) Bind(v any) error {
 		return err
 	}
 	return Validate(v)
+}
+
+// BindOrAbort binds and validates the request body into v (see Bind) and,
+// on failure, aborts the chain with a 422 Unprocessable Entity response and
+// returns false - the check-and-reject boilerplate every write endpoint
+// otherwise repeats identically:
+//
+//	var form CreateUserForm
+//	if !c.BindOrAbort(&form) {
+//	    return
+//	}
+//	// form is valid past this point
+//
+// The response body distinguishes a validation failure (every failed rule,
+// as {"errors": [...]}) from a malformed request body (a single
+// {"error": "..."}, e.g. unparseable JSON) - see AbortWithError.
+func (c *Context) BindOrAbort(v any) bool {
+	if err := c.Bind(v); err != nil {
+		c.AbortWithError(http.StatusUnprocessableEntity, err)
+		return false
+	}
+	return true
 }
 
 // BindJSON decodes the request body as JSON into v, without running

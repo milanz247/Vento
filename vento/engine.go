@@ -96,6 +96,13 @@ func (e *Engine) PUT(path string, handler HandlerFunc, middlewares ...HandlerFun
 	e.addRoute(http.MethodPut, path, handler, middlewares)
 }
 
+// PATCH registers a handler for PATCH requests to path, optionally guarded
+// by route-specific middlewares. PATCH is the conventional verb for a
+// partial update (as opposed to PUT's full replacement).
+func (e *Engine) PATCH(path string, handler HandlerFunc, middlewares ...HandlerFunc) {
+	e.addRoute(http.MethodPatch, path, handler, middlewares)
+}
+
 // DELETE registers a handler for DELETE requests to path, optionally
 // guarded by route-specific middlewares.
 func (e *Engine) DELETE(path string, handler HandlerFunc, middlewares ...HandlerFunc) {

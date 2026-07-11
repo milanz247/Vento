@@ -1,6 +1,7 @@
 package vento
 
 import (
+	"encoding/json"
 	"net/http"
 	"net/http/httptest"
 	"net/url"
@@ -99,5 +100,85 @@ func TestBindFormConvertsNumericAndBoolFields(t *testing.T) {
 	}
 	if nf.Count != 42 || nf.Ratio != 3.5 || !nf.Ok {
 		t.Fatalf("unexpected bound values: %+v", nf)
+	}
+}
+
+func TestBindOrAbortSucceedsAndDoesNotWriteAResponse(t *testing.T) {
+	body := `{"email":"user@example.com","password":"supersecret"}`
+	rec := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodPost, "/", strings.NewReader(body))
+	req.Header.Set("Content-Type", "application/json")
+
+	c := &Context{index: -1}
+	c.Reset(rec, req)
+	c.handlers = []HandlerFunc{func(*Context) {}}
+
+	var form loginForm
+	if !c.BindOrAbort(&form) {
+		t.Fatal("expected BindOrAbort to succeed for a valid payload")
+	}
+	if rec.Code != http.StatusOK { // recorder default before any write
+		t.Fatalf("expected no response to have been written yet, got status %d", rec.Code)
+	}
+}
+
+func TestBindOrAbortWrites422WithFieldErrorsOnValidationFailure(t *testing.T) {
+	body := `{"email":"not-an-email","password":"short"}`
+	rec := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodPost, "/", strings.NewReader(body))
+	req.Header.Set("Content-Type", "application/json")
+
+	ran := false
+	c := &Context{index: -1}
+	c.Reset(rec, req)
+	c.handlers = []HandlerFunc{
+		func(c *Context) {
+			var form loginForm
+			if !c.BindOrAbort(&form) {
+				return
+			}
+			ran = true
+		},
+	}
+	c.Next()
+
+	if ran {
+		t.Fatal("expected BindOrAbort to stop the handler on invalid input")
+	}
+	if rec.Code != http.StatusUnprocessableEntity {
+		t.Fatalf("expected 422, got %d", rec.Code)
+	}
+
+	var body2 struct {
+		Errors []string `json:"errors"`
+	}
+	if err := json.Unmarshal(rec.Body.Bytes(), &body2); err != nil {
+		t.Fatalf("expected {\"errors\": [...]} body, got %q (err=%v)", rec.Body.String(), err)
+	}
+	if len(body2.Errors) < 2 {
+		t.Fatalf("expected both email and password errors reported, got %v", body2.Errors)
+	}
+}
+
+func TestBindOrAbortWritesPlainErrorOnMalformedBody(t *testing.T) {
+	rec := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodPost, "/", strings.NewReader("{not json"))
+	req.Header.Set("Content-Type", "application/json")
+
+	c := &Context{index: -1}
+	c.Reset(rec, req)
+	c.handlers = []HandlerFunc{func(*Context) {}}
+
+	var form loginForm
+	if c.BindOrAbort(&form) {
+		t.Fatal("expected BindOrAbort to fail on malformed JSON")
+	}
+	if rec.Code != http.StatusUnprocessableEntity {
+		t.Fatalf("expected 422, got %d", rec.Code)
+	}
+
+	var body2 map[string]string
+	if err := json.Unmarshal(rec.Body.Bytes(), &body2); err != nil || body2["error"] == "" {
+		t.Fatalf("expected a single {\"error\": \"...\"} body for a non-validation error, got %q", rec.Body.String())
 	}
 }
