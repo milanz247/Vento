@@ -1,4 +1,11 @@
-package vento
+// Package config loads application configuration - a .env file plus the
+// process environment - with no dependency on *vento.Context or any other
+// vento type. It's a separate package (rather than living in vento
+// directly) because none of it needs to be a method: loading config is a
+// startup-time, Context-free concern, so it's free to live in its own
+// clearly-named folder instead of vento's flat, method-constrained
+// directory (see vento's package doc for why most of vento can't do this).
+package config
 
 import (
 	"bufio"
@@ -79,8 +86,8 @@ func BuildMySQLDSN(env map[string]string) (dsn string, ok bool) {
 // every function that needs a setting. fallback is returned when key is
 // unset or (for EnvInt/EnvBool) set to something that doesn't parse.
 //
-//	timeout := vento.EnvInt("REQUEST_TIMEOUT_SECONDS", 30)
-//	debug := vento.EnvBool("APP_DEBUG", false)
+//	timeout := config.EnvInt("REQUEST_TIMEOUT_SECONDS", 30)
+//	debug := config.EnvBool("APP_DEBUG", false)
 func Env(key, fallback string) string {
 	if v := os.Getenv(key); v != "" {
 		return v

@@ -11,14 +11,15 @@ import (
 	"vento-app/app/middleware"
 	"vento-app/routes"
 	"vento-app/vento"
+	"vento-app/vento/config"
 )
 
 func main() {
-	env := vento.LoadEnv(".env")
+	env := config.LoadEnv(".env")
 
 	// MySQL is the exclusive database provider: refuse to start without a
 	// complete configuration and a live connection.
-	dsn, ok := vento.BuildMySQLDSN(env)
+	dsn, ok := config.BuildMySQLDSN(env)
 	if !ok {
 		log.Fatal("vento: DB_HOST/DB_USER/DB_NAME missing from .env - MySQL configuration is required")
 	}

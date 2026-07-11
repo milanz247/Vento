@@ -7,6 +7,8 @@ import (
 	"sync"
 	"sync/atomic"
 	"time"
+
+	"vento-app/vento/hash"
 )
 
 // ContentSecurityPolicy is the Content-Security-Policy value SecurityHeaders
@@ -159,7 +161,7 @@ func CSRFProtection(exemptPrefixes ...string) HandlerFunc {
 		switch c.Request.Method {
 		case http.MethodGet, http.MethodHead, http.MethodOptions, http.MethodTrace:
 			if _, err := c.Request.Cookie(CSRFCookieName); err != nil {
-				token := RandomString(32)
+				token := hash.RandomString(32)
 				if token == "" {
 					c.Abort(http.StatusInternalServerError, "could not issue CSRF token")
 					return

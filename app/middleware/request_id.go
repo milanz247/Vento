@@ -8,15 +8,19 @@
 // c.Next() to pass control down the chain. Register the ones here in
 // routes/web.go: globally via app.Use(...), or per-route as an extra
 // argument to app.GET/POST/... The dependency direction stays one-way:
-// this package imports vento only, never routes or controllers.
+// this package imports vento (and its subpackages) only, never routes or
+// controllers.
 package middleware
 
-import "vento-app/vento"
+import (
+	"vento-app/vento"
+	"vento-app/vento/hash"
+)
 
 // RequestID attaches a unique X-Request-ID to every request/response so a
 // single request can be traced across logs and, behind a proxy, across
 // services. An inbound X-Request-ID (e.g. set by a load balancer) is
-// honored; otherwise a fresh random one is generated via vento.RandomString
+// honored; otherwise a fresh random one is generated via hash.RandomString
 // - the same random-token primitive Vento's own CSRF protection uses, so
 // there's exactly one place in the whole app that touches crypto/rand. The
 // value is written onto both the request headers - so downstream handlers
@@ -28,7 +32,7 @@ import "vento-app/vento"
 func RequestID(c *vento.Context) {
 	id := c.Request.Header.Get("X-Request-ID")
 	if id == "" {
-		id = vento.RandomString(16) // 32 hex chars
+		id = hash.RandomString(16) // 32 hex chars
 		c.Request.Header.Set("X-Request-ID", id)
 	}
 	c.Writer.Header().Set("X-Request-ID", id)

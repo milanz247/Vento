@@ -18,27 +18,18 @@ type UserForm struct {
 // UserIndex handles GET /api/users - a paginated list, e.g.
 // /api/users?page=2&per_page=10.
 func UserIndex(c *vento.Context) {
-	var users []models.User
-	page := c.QueryInt("page", 1)
-	perPage := c.QueryInt("per_page", vento.DefaultPerPage)
-
-	if err := c.DB().Scopes(vento.Paginate(page, perPage)).Find(&users).Error; err != nil {
+	page, err := vento.Query[models.User](c).Paginate(c.QueryInt("page", 1), c.QueryInt("per_page", vento.DefaultPerPage))
+	if err != nil {
 		c.InternalError("could not load users")
 		return
 	}
-	c.OK(users)
+	c.OK(page)
 }
 
 // UserShow handles GET /api/users/:id.
 func UserShow(c *vento.Context) {
-	id, err := c.ParamUint("id")
-	if err != nil {
-		c.BadRequest("invalid id")
-		return
-	}
-
-	var user models.User
-	if !vento.FindOrNotFound(c, &user, id) {
+	user, ok := vento.Model[models.User](c, "id")
+	if !ok {
 		return
 	}
 	c.OK(user)
@@ -52,8 +43,7 @@ func UserCreate(c *vento.Context) {
 	}
 
 	user := models.User{Name: form.Name, Email: form.Email}
-	if err := c.DB().Create(&user).Error; err != nil {
-		c.InternalError("could not create user")
+	if !vento.Query[models.User](c).CreateOrAbort(&user) {
 		return
 	}
 	c.Created(user)
@@ -61,14 +51,8 @@ func UserCreate(c *vento.Context) {
 
 // UserUpdate handles PUT /api/users/:id.
 func UserUpdate(c *vento.Context) {
-	id, err := c.ParamUint("id")
-	if err != nil {
-		c.BadRequest("invalid id")
-		return
-	}
-
-	var user models.User
-	if !vento.FindOrNotFound(c, &user, id) {
+	user, ok := vento.Model[models.User](c, "id")
+	if !ok {
 		return
 	}
 
@@ -79,8 +63,7 @@ func UserUpdate(c *vento.Context) {
 
 	user.Name = form.Name
 	user.Email = form.Email
-	if err := c.DB().Save(&user).Error; err != nil {
-		c.InternalError("could not update user")
+	if !vento.Query[models.User](c).SaveOrAbort(user) {
 		return
 	}
 	c.OK(user)
@@ -88,19 +71,11 @@ func UserUpdate(c *vento.Context) {
 
 // UserDelete handles DELETE /api/users/:id.
 func UserDelete(c *vento.Context) {
-	id, err := c.ParamUint("id")
-	if err != nil {
-		c.BadRequest("invalid id")
+	user, ok := vento.Model[models.User](c, "id")
+	if !ok {
 		return
 	}
-
-	var user models.User
-	if !vento.FindOrNotFound(c, &user, id) {
-		return
-	}
-
-	if err := c.DB().Delete(&user).Error; err != nil {
-		c.InternalError("could not delete user")
+	if !vento.Query[models.User](c).DeleteOrAbort(user) {
 		return
 	}
 	c.NoContent()

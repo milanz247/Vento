@@ -1,6 +1,3 @@
-// Package vento is a lightweight, high-performance full-stack web
-// framework built on Go's standard library, with GORM/MySQL as its only
-// external integration.
 package vento
 
 import (
@@ -10,6 +7,7 @@ import (
 	"log"
 	"maps"
 	"net/http"
+	"reflect"
 	"strings"
 	"sync"
 
@@ -46,10 +44,11 @@ type Context struct {
 	handlers []HandlerFunc // compiled chain: global + route middlewares + controller
 	index    int           // index of the currently executing handler; starts at -1
 
-	db        *gorm.DB            // injected by the Engine before the chain runs
-	templates map[string]*viewSet // pre-stitched layout+page sets, injected by the Engine
-	viewData  H                   // values accumulated via Set, rendered by View when called with no data
-	session   *Session            // loaded by the Sessions middleware, if installed; see Session()
+	db        *gorm.DB             // injected by the Engine before the chain runs
+	templates map[string]*viewSet  // pre-stitched layout+page sets, injected by the Engine
+	viewData  H                    // values accumulated via Set, rendered by View when called with no data
+	session   *Session             // loaded by the Sessions middleware, if installed; see Session()
+	typed     map[reflect.Type]any // request-scoped values stashed via Provide, read via Use
 }
 
 // Reset re-initialises a pooled Context for a new request/response cycle,
@@ -67,6 +66,7 @@ func (c *Context) Reset(w http.ResponseWriter, r *http.Request) {
 	c.templates = nil
 	c.viewData = nil
 	c.session = nil
+	c.typed = nil
 }
 
 // Session returns the current request's session - key/value storage backed
@@ -174,6 +174,25 @@ func (c *Context) Param(key string) string {
 // connection.
 func (c *Context) DB() *gorm.DB {
 	return c.db.WithContext(c.Request.Context())
+}
+
+// SetDB replaces the *gorm.DB this Context's DB() (and everything built on
+// it - QueryHandle, FindOrNotFound, Model) uses for the rest of the
+// request. The intended caller is a test that needs to point a handler at
+// an isolated test database via vento/vtest.NewContext, which has no other
+// way to reach the unexported db field from outside the package.
+func (c *Context) SetDB(db *gorm.DB) {
+	c.db = db
+}
+
+// SetParams replaces this Context's route parameters - the map Param reads
+// from. Set by the Engine's router for a normal request; the intended
+// caller otherwise is a test simulating a route parameter (e.g. an ":id")
+// without going through the real router - see vento/vtest.NewContext,
+// which has no other way to reach the unexported params field from
+// outside the package.
+func (c *Context) SetParams(params map[string]string) {
+	c.params = params
 }
 
 // View renders the named page (e.g. "index" for views/index.html) with

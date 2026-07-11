@@ -9,13 +9,13 @@ import "fmt"
 const authSessionKey = "_auth_user_id"
 
 // Login marks the current session as authenticated for userID - the one
-// step a login handler needs after verifying credentials (see
-// CheckPassword). userID is stored as its string form (via fmt.Sprint), so
-// any ID type - uint, int, a UUID string - round-trips through the signed
-// session cookie without JSON's usual "every number comes back as
-// float64" surprise (see Session's doc comment).
+// step a login handler needs after verifying credentials (see the
+// vento/hash package's Check). userID is stored as its string form (via
+// fmt.Sprint), so any ID type - uint, int, a UUID string - round-trips
+// through the signed session cookie without JSON's usual "every number
+// comes back as float64" surprise (see Session's doc comment).
 //
-//	if !vento.CheckPassword(user.PasswordHash, form.Password) {
+//	if !hash.Check(user.PasswordHash, form.Password) {
 //	    c.Unauthorized("invalid credentials")
 //	    return
 //	}

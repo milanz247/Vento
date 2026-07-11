@@ -27,6 +27,8 @@ import (
 	"vento-app/app/models"
 	"vento-app/migrations"
 	"vento-app/vento"
+	"vento-app/vento/config"
+	"vento-app/vento/migrate"
 
 	_ "github.com/go-sql-driver/mysql"
 	"gorm.io/gorm"
@@ -176,7 +178,7 @@ func ensureCSSBuilt() {
 // doesn't already exist, so a fresh checkout can migrate straight away
 // instead of failing with a cryptic "unknown database" error.
 func openDB(createIfMissing bool) *gorm.DB {
-	env := vento.LoadEnv(".env")
+	env := config.LoadEnv(".env")
 	if env["DB_HOST"] == "" || env["DB_USER"] == "" || env["DB_NAME"] == "" {
 		fail("DB_HOST/DB_USER/DB_NAME missing from .env - MySQL configuration is required")
 	}
@@ -189,7 +191,7 @@ func openDB(createIfMissing bool) *gorm.DB {
 		ensureDatabaseExists(env["DB_USER"], env["DB_PASSWORD"], env["DB_HOST"], port, env["DB_NAME"])
 	}
 
-	dsn, ok := vento.BuildMySQLDSN(env)
+	dsn, ok := config.BuildMySQLDSN(env)
 	if !ok {
 		fail("DB_HOST/DB_USER/DB_NAME missing from .env - MySQL configuration is required")
 	}
@@ -265,7 +267,7 @@ func ensureDatabaseExists(user, password, host, port, name string) {
 // runMigrations applies every pending migration in migrations.All(),
 // recording each in the schema_migrations table so it never runs twice.
 func runMigrations(db *gorm.DB) {
-	applied, err := vento.RunMigrations(db, migrations.All())
+	applied, err := migrate.Run(db, migrations.All())
 	if err != nil {
 		fail(err.Error())
 	}
@@ -282,7 +284,7 @@ func runMigrations(db *gorm.DB) {
 // rollback reverts the most recently applied migration by running its Down
 // function and deleting its schema_migrations row.
 func rollback(db *gorm.DB) {
-	id, err := vento.RollbackLastMigration(db, migrations.All())
+	id, err := migrate.RollbackLast(db, migrations.All())
 	if err != nil {
 		fail(err.Error())
 	}
@@ -300,7 +302,7 @@ func rollback(db *gorm.DB) {
 // reversible history.
 func autoMigrate(db *gorm.DB) {
 	all := models.All()
-	if err := vento.AutoMigrateModels(db, all); err != nil {
+	if err := migrate.AutoMigrateModels(db, all); err != nil {
 		fail(err.Error())
 	}
 	for _, model := range all {
@@ -450,12 +452,12 @@ const migrationStub = `package migrations
 import (
 	"gorm.io/gorm"
 
-	"vento-app/vento"
+	"vento-app/vento/migrate"
 )
 
 // %[1]s
 func init() {
-	register(vento.Migration{
+	register(migrate.Migration{
 		ID: "%[1]s",
 		Up: func(tx *gorm.DB) error {
 			// Apply the change, e.g.:

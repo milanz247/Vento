@@ -1,4 +1,4 @@
-package vento
+package config
 
 import (
 	"os"
